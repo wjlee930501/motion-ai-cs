@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  chatlogger-web:
+    build:
+      context: ./ChatLoggerWeb
+      dockerfile: Dockerfile
+    container_name: chatlogger-web
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+    networks:
+      - chatlogger-network
+    depends_on:
+      - chatlogger-db
+    restart: unless-stopped
+
+  chatlogger-db:
+    image: postgres:15-alpine
+    container_name: chatlogger-db
+    environment:
+      POSTGRES_DB: chatlogger
+      POSTGRES_USER: chatlogger
+      POSTGRES_PASSWORD: chatlogger123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - chatlogger-network
+    restart: unless-stopped
+
+  # Optional: Backend sync service
+  chatlogger-sync:
+    build:
+      context: ./ChatLoggerSync
+      dockerfile: Dockerfile
+    container_name: chatlogger-sync
+    environment:
+      DATABASE_URL: postgresql://chatlogger:chatlogger123@chatlogger-db:5432/chatlogger
+      ANDROID_API_URL: http://host.docker.internal:8080
+    networks:
+      - chatlogger-network
+    depends_on:
+      - chatlogger-db
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  chatlogger-network:
+    driver: bridge

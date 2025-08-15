@@ -1,0 +1,218 @@
+MotionLabs Android KakaoTalk Chat Logger Bot v1.0
+
+버전 기록: v1.0.0 / 2025-08-15 / 수정본 – 컴플라이언스 및 Slack 기능 제거
+
+1. 목표
+
+하나의 안드로이드 공기계에서 전용 카카오톡 계정으로 모든 CS 카톡방에 참여
+
+단말에 도착하는 KakaoTalk 푸시 알림을 수신해 채팅방별로 대화 로그를 기록
+
+발신자 프로필명, 메시지 내용, 수신 시각을 구조화 저장
+
+앱 내에 카카오톡과 유사한 히스토리 뷰 제공
+
+최종 산출물은 APK
+
+설치 및 서비스 시작까지 무중단 자동화
+
+2. 핵심 제약과 해결 전략
+
+알림 수집은 NotificationListenerService 사용(앱 권한: Notification Access). 최초 1회 기기 설정에서 토글 필요. 대안: ADB 프로비저너로 secure settings에 등록.
+
+Android 13+: POST_NOTIFICATIONS 권한 요청은 최초 실행 시 자동 요청 또는 ADB로 사전 허용
+
+접근성 서비스는 기본 미사용. 이후 확장이 필요한 경우 정책 준수 하에 별도 모듈로 분리
+
+Android 14+: Foreground Service 타입 지정(remoteMessaging/dataSync) 및 백그라운드 시작 제한 대응을 위해 Foreground Service + WorkManager 조합 사용
+
+3. 아키텍처
+
+앱 계층
+
+service-notify: NotificationListenerService로 KakaoTalk 패키지 알림 수신
+
+core-parse: 알림 payload에서 채팅방명, 발신자, 본문 텍스트, 타임스탬프 파싱
+
+data-store: Room(SQLite)로 대화 저장. 채팅방/메시지 스키마 정의
+
+ui-chat: Jetpack Compose로 채팅방 리스트/대화창(카톡 유사)
+
+boot-autostart: BOOT_COMPLETED 수신, ForegroundService 재시작, WorkManager 주기 점검
+
+ops: Export(백업·CSV), Retention(보존기간 만료 데이터 파기)
+
+4. 데이터 모델
+
+Table chat_rooms
+
+id (PK, uuid)
+
+room_name (text, index)
+
+last_message_at (epoch)
+
+Table chat_messages
+
+id (PK, uuid)
+
+room_id (FK -> chat_rooms.id, index)
+
+ts (epoch, index)
+
+sender (text)
+
+body (text)
+
+raw_json (text)
+
+보존 정책
+
+기본 90일 보관, 월 1회 자동 파기 옵션
+
+내보내기: CSV/JSON 파일
+
+5. 화면·UX
+
+Home: 채팅방 리스트(최근 메시지, 미리보기, 시간)
+
+Detail: 대화 버블형 UI(좌: 타인, 우: 자사계정), 상단에 방 이름
+
+검색: 방/발신자/키워드 필터
+
+설정: 데이터 보존기간, 내보내기, 진단 로그
+
+6. 권한 및 매니페스트
+
+필수 권한
+
+BIND_NOTIFICATION_LISTENER_SERVICE
+
+FOREGROUND_SERVICE(및 Android 14 FGS 타입 선언)
+
+RECEIVE_BOOT_COMPLETED
+
+POST_NOTIFICATIONS (targetSdk 33+에서 런타임)
+
+권장 권한
+
+WAKE_LOCK, FOREGROUND_SERVICE_DATA_SYNC, FOREGROUND_SERVICE_REMOTE_MESSAGING
+
+7. 파서 로직 요약
+
+KakaoTalk 알림은 MessagingStyle 기반
+
+추출 키
+
+Notification.EXTRA_TITLE
+
+Notification.EXTRA_TEXT
+
+MessagingStyle messages 배열
+
+묶음 알림 분해
+
+미리보기 차단 시 body 빈 문자열 처리, raw_json 저장
+
+8. 프로비저닝
+
+ADB 스크립트:
+
+앱 설치
+
+Notification Listener 허용: settings put secure enabled_notification_listeners
+
+POST_NOTIFICATIONS 허용
+
+Doze 예외 등록
+
+ForegroundService 시작
+
+9. 출력물
+
+ChatLoggerBot.apk
+
+내장 DB(Room, /data/data/<pkg>/databases/chatlogger.db)
+
+내보내기: /Download/ChatLoggerBot/export-yyyymmdd.json(.zip)
+
+10. 테스트 시나리오
+
+평문 알림 수신 → 방/발신자/본문/시각 기록
+
+묶음 알림 분해
+
+여러 방 동시 수신 시 방별 저장
+
+부팅 후 자동 시작, Foreground Service 상시 대기
+
+WorkManager로 서비스 중단 복구
+
+Claude Code용 실행 지시 프롬프트
+프로젝트명: MotionLabs ChatLoggerBot (Android, Kotlin, Jetpack Compose, Room, WorkManager)
+
+목표:
+1) KakaoTalk 푸시 알림(NotificationListenerService) → 방/발신자/본문/시각 파싱 및 저장
+2) 채팅방 리스트/상세 대화 UI 제공(카카오톡 유사)
+3) 부팅 자동 시작 + Foreground Service(remoteMessaging|dataSync) 상주
+4) 설치·프로비저닝·서비스 시작까지 질문 없이 자동 수행
+
+리포지토리 구조:
+app/
+  build.gradle
+  src/main/AndroidManifest.xml
+  src/main/java/com/motionlabs/chatlogger/
+    MainActivity.kt
+    ui/
+      HomeScreen.kt
+      ChatScreen.kt
+      theme/...
+    data/
+      db/AppDatabase.kt
+      db/dao/ChatDao.kt
+      db/entity/ChatRoom.kt
+      db/entity/ChatMessage.kt
+      repo/ChatRepository.kt
+    notify/
+      KakaoNotificationListener.kt
+      NotificationParser.kt
+    service/
+      ForegroundService.kt
+      BootReceiver.kt
+      HealthCheckWorker.kt
+    ops/
+      ExportManager.kt
+      RetentionManager.kt
+  src/main/res/layout, drawable, values/...
+
+구현 지시:
+1) Room 스키마 정의
+2) NotificationListenerService 구현
+3) Parser 작성
+4) Repository 작성
+5) UI: Compose로 방 리스트/대화 버블
+6) ForegroundService 구현
+7) BootReceiver 구현
+8) Retention/Export 기능 구현
+9) Android 14 FGS 타입 지정
+
+프로비저닝 자동화(ADB 스크립트 생성):
+- scripts/provision.sh 생성
+  - adb install ChatLoggerBot.apk
+  - adb shell cmd notification allow_listener com.motionlabs.chatlogger/.notify.KakaoNotificationListener
+  - adb shell cmd appops set com.motionlabs.chatlogger POST_NOTIFICATION allow
+  - adb shell cmd deviceidle whitelist +com.motionlabs.chatlogger
+  - adb shell am start-foreground-service com.motionlabs.chatlogger/.service.ForegroundService
+
+테스트:
+- 단일/묶음 알림 파싱
+- 여러 방 동시 수신
+- 재부팅 후 자동 상주
+- WorkManager 복구
+
+결과물:
+- app/build/outputs/apk/release/ChatLoggerBot.apk
+- scripts/provision.sh
+
+질문 금지:
+- 구현 중 추가 질의 없이 위 지시에 맞춰 전체 코드, 빌드 스크립트, APK, 프로비저닝 스크립트까지 완료

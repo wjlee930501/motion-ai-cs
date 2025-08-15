@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+@layer components {
+  .chat-bubble {
+    @apply max-w-[70%] px-3 py-2 rounded-2xl break-words;
+  }
+  
+  .chat-bubble-me {
+    @apply bg-kakao-yellow ml-auto;
+  }
+  
+  .chat-bubble-other {
+    @apply bg-white;
+  }
+  
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}

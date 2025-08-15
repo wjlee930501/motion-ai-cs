@@ -1,0 +1,138 @@
+package com.motionlabs.chatlogger.notify
+
+import android.app.Notification
+import android.app.Person
+import android.os.Bundle
+import android.util.Log
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+
+data class ParsedNotification(
+    val roomName: String,
+    val sender: String,
+    val message: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val rawJson: String? = null
+)
+
+class NotificationParser {
+    
+    companion object {
+        private const val TAG = "NotificationParser"
+        private const val EXTRA_TITLE = "android.title"
+        private const val EXTRA_TEXT = "android.text"
+        private const val EXTRA_SUB_TEXT = "android.subText"
+        private const val EXTRA_BIG_TEXT = "android.bigText"
+        private const val EXTRA_MESSAGES = "android.messages"
+        private const val EXTRA_MESSAGING_PERSON = "android.messagingUser"
+        private const val EXTRA_CONVERSATION_TITLE = "android.conversationTitle"
+    }
+
+    private val gson = Gson()
+
+    fun parseKakaoNotification(notification: Notification): ParsedNotification? {
+        return try {
+            val extras = notification.extras
+            val rawJson = convertExtrasToJson(extras)
+            
+            // MessagingStyle 알림 처리
+            val messagingStyle = parseMessagingStyle(extras)
+            if (messagingStyle != null) {
+                return messagingStyle.copy(rawJson = rawJson)
+            }
+
+            // 일반 알림 처리
+            val title = extras.getCharSequence(EXTRA_TITLE)?.toString() ?: ""
+            val text = extras.getCharSequence(EXTRA_TEXT)?.toString() ?: ""
+            val bigText = extras.getCharSequence(EXTRA_BIG_TEXT)?.toString()
+            val subText = extras.getCharSequence(EXTRA_SUB_TEXT)?.toString()
+
+            val message = bigText ?: text
+            
+            // 방 이름과 발신자 파싱
+            val (roomName, sender) = parseRoomAndSender(title, subText)
+            
+            if (roomName.isNotEmpty() && message.isNotEmpty()) {
+                ParsedNotification(
+                    roomName = roomName,
+                    sender = sender,
+                    message = message,
+                    rawJson = rawJson
+                )
+            } else {
+                Log.w(TAG, "Incomplete notification data")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing notification", e)
+            null
+        }
+    }
+
+    private fun parseMessagingStyle(extras: Bundle): ParsedNotification? {
+        try {
+            val conversationTitle = extras.getCharSequence(EXTRA_CONVERSATION_TITLE)?.toString()
+            val messages = extras.getParcelableArray(EXTRA_MESSAGES)
+            
+            if (!messages.isNullOrEmpty()) {
+                val lastMessage = messages.last() as? Bundle
+                if (lastMessage != null) {
+                    val text = lastMessage.getCharSequence("text")?.toString() ?: ""
+                    val sender = lastMessage.getCharSequence("sender")?.toString() ?: 
+                                lastMessage.getParcelable<Person>("sender_person")?.name?.toString() ?: "Unknown"
+                    val time = lastMessage.getLong("time", System.currentTimeMillis())
+                    
+                    val roomName = conversationTitle ?: sender
+                    
+                    return ParsedNotification(
+                        roomName = roomName,
+                        sender = sender,
+                        message = text,
+                        timestamp = time
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing MessagingStyle", e)
+        }
+        return null
+    }
+
+    private fun parseRoomAndSender(title: String, subText: String?): Pair<String, String> {
+        // 단톡방인 경우: title = "발신자", subText = "방 이름"
+        // 1:1 대화인 경우: title = "발신자", subText = null
+        
+        return if (!subText.isNullOrEmpty()) {
+            // 단톡방
+            Pair(subText, title)
+        } else {
+            // 1:1 대화
+            Pair(title, title)
+        }
+    }
+
+    private fun convertExtrasToJson(extras: Bundle): String {
+        return try {
+            val json = JsonObject()
+            for (key in extras.keySet()) {
+                try {
+                    val value = extras.get(key)
+                    when (value) {
+                        is String -> json.addProperty(key, value)
+                        is Int -> json.addProperty(key, value)
+                        is Long -> json.addProperty(key, value)
+                        is Boolean -> json.addProperty(key, value)
+                        is CharSequence -> json.addProperty(key, value.toString())
+                        else -> json.addProperty(key, value?.toString() ?: "null")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error converting key $key", e)
+                }
+            }
+            gson.toJson(json)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error converting extras to JSON", e)
+            "{}"
+        }
+    }
+}

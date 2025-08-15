@@ -1,0 +1,41 @@
+# Android
+ChatLoggerBot/app/build/
+ChatLoggerBot/build/
+ChatLoggerBot/.gradle/
+ChatLoggerBot/local.properties
+ChatLoggerBot/*.apk
+ChatLoggerBot/.idea/
+ChatLoggerBot/*.iml
+
+# Node
+ChatLoggerWeb/node_modules/
+ChatLoggerWeb/dist/
+ChatLoggerWeb/.env
+ChatLoggerWeb/.env.local
+ChatLoggerWeb/.env.production
+ChatLoggerWeb/npm-debug.log*
+ChatLoggerWeb/yarn-debug.log*
+ChatLoggerWeb/yarn-error.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Docker
+postgres_data/
+
+# Temp files
+*.tmp
+*.bak
+*.cache
+
+# Claude preferences
+.claude_preferences
