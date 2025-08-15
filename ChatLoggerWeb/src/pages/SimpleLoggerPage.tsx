@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { 
   FiMessageSquare, 
   FiSearch, 
@@ -37,6 +37,9 @@ export const SimpleLoggerPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const previousScrollHeight = useRef(0)
+  const isUserScrolling = useRef(false)
 
   useEffect(() => {
     loadRooms()
@@ -44,21 +47,87 @@ export const SimpleLoggerPage: React.FC = () => {
     // WebSocket 연결 상태 모니터링
     const unsubscribeConnected = wsService.on('connected', (connected: boolean) => {
       setIsConnected(connected)
+      if (connected) {
+        console.log('WebSocket connected')
+      }
     })
 
     // 새 메시지 실시간 수신
     const unsubscribeNewMessage = wsService.on('new_message', (message: Message) => {
-      if (selectedRoom?.id === message.roomId) {
-        setMessages(prev => [...prev, message])
-      }
-      loadRooms() // 방 목록 업데이트
+      console.log('New message received:', message)
+      
+      // 현재 선택된 방의 메시지인 경우 메시지 목록에 추가
+      setMessages(prev => {
+        if (selectedRoom?.id === message.roomId) {
+          // 중복 메시지 체크
+          const exists = prev.some(m => m.id === message.id)
+          if (!exists) {
+            // 새 메시지 추가 전 스크롤 상태 확인
+            if (messagesContainerRef.current) {
+              const container = messagesContainerRef.current
+              const scrollBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+              // 사용자가 맨 아래에서 100px 이상 위에 있으면 스크롤 유지
+              isUserScrolling.current = scrollBottom > 100
+              previousScrollHeight.current = container.scrollHeight
+            }
+            return [...prev, message]
+          }
+        }
+        return prev
+      })
+      
+      // 방 목록 업데이트
+      loadRooms()
+    })
+
+    // 방 업데이트 실시간 수신
+    const unsubscribeRoomUpdate = wsService.on('room_updated', (room: Room) => {
+      console.log('Room updated:', room)
+      setRooms(prev => {
+        const index = prev.findIndex(r => r.id === room.id)
+        if (index >= 0) {
+          const updated = [...prev]
+          updated[index] = room
+          // 최신 메시지 순으로 정렬
+          return updated.sort((a, b) => b.lastMessageAt - a.lastMessageAt)
+        }
+        return [...prev, room].sort((a, b) => b.lastMessageAt - a.lastMessageAt)
+      })
+    })
+
+    // 방 목록 업데이트 실시간 수신
+    const unsubscribeRoomsUpdate = wsService.on('rooms_update', (rooms: Room[]) => {
+      console.log('Rooms update:', rooms)
+      setRooms(rooms)
     })
 
     return () => {
       unsubscribeConnected()
       unsubscribeNewMessage()
+      unsubscribeRoomUpdate()
+      unsubscribeRoomsUpdate()
     }
   }, [selectedRoom])
+
+  // 메시지가 업데이트될 때 스크롤 위치 처리
+  useEffect(() => {
+    if (messagesContainerRef.current && messages.length > 0) {
+      const container = messagesContainerRef.current
+      
+      if (isUserScrolling.current) {
+        // 사용자가 스크롤 중인 경우: 현재 스크롤 위치를 유지
+        // 새 메시지가 아래 추가되면서 기존 메시지들이 위로 밀림
+        const heightDiff = container.scrollHeight - previousScrollHeight.current
+        container.scrollTop = container.scrollTop + heightDiff
+        isUserScrolling.current = false
+      } else {
+        // 사용자가 맨 아래에 있거나 처음 로드: 맨 아래로 스크롤
+        setTimeout(() => {
+          container.scrollTop = container.scrollHeight
+        }, 10)
+      }
+    }
+  }, [messages])
 
   const loadRooms = async () => {
     try {
@@ -84,6 +153,7 @@ export const SimpleLoggerPage: React.FC = () => {
 
   const handleRoomSelect = (room: Room) => {
     setSelectedRoom(room)
+    isUserScrolling.current = false // 새 방 선택 시 맨 아래로 스크롤
     loadMessages(room.id)
   }
 
@@ -219,7 +289,9 @@ export const SimpleLoggerPage: React.FC = () => {
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4">
+              <div 
+                ref={messagesContainerRef}
+                className="flex-1 overflow-y-auto p-4">
                 {loading ? (
                   <div className="text-center py-8">
                     <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>

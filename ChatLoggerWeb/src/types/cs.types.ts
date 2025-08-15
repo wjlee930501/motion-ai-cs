@@ -1,5 +1,7 @@
 // CS Team specific types
 
+import { ChatRoom, ChatMessage } from './index'
+
 export interface Customer {
   id: string
   name: string

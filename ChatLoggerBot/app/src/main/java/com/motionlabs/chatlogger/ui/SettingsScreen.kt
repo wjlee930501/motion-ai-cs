@@ -7,10 +7,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
+import java.net.NetworkInterface
+import java.util.Collections
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +46,55 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // API Server Status Card
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "API Server Status",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    val ipAddress = remember { getIpAddress() }
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("HTTP API: ")
+                        Text(
+                            text = "http://$ipAddress:8080",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("WebSocket: ")
+                        Text(
+                            text = "ws://$ipAddress:8081",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Text(
+                        text = "웹페이지에서 위 주소로 접속하세요",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
             Card(
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -191,4 +243,26 @@ fun SettingsScreen(
             }
         )
     }
+}
+
+private fun getIpAddress(): String {
+    try {
+        val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+        for (intf in interfaces) {
+            val addrs = Collections.list(intf.inetAddresses)
+            for (addr in addrs) {
+                if (!addr.isLoopbackAddress) {
+                    val sAddr = addr.hostAddress
+                    // IPv4 주소인지 확인
+                    val isIPv4 = sAddr?.indexOf(':') ?: -1 < 0
+                    if (isIPv4) {
+                        return sAddr ?: "localhost"
+                    }
+                }
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    return "localhost"
 }

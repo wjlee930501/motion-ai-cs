@@ -1,50 +1,92 @@
-import { io, Socket } from 'socket.io-client'
 import { ChatMessage, ChatRoom } from '@/types'
 
 class WebSocketService {
-  private socket: Socket | null = null
+  private socket: WebSocket | null = null
   private listeners: Map<string, Set<Function>> = new Map()
+  private reconnectTimeout: NodeJS.Timeout | null = null
+  private url: string = ''
 
-  connect(url: string = 'ws://localhost:8081') {
-    if (this.socket?.connected) {
+  connect(url: string = import.meta.env.VITE_WS_URL || 'ws://localhost:8081') {
+    if (this.socket?.readyState === WebSocket.OPEN) {
       return
     }
 
-    this.socket = io(url, {
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    })
+    this.url = url
+    this.socket = new WebSocket(url)
 
-    this.socket.on('connect', () => {
+    this.socket.onopen = () => {
       console.log('WebSocket connected')
       this.emit('connected', true)
-    })
+      // Send ping to keep connection alive
+      this.sendMessage('ping', {})
+    }
 
-    this.socket.on('disconnect', () => {
+    this.socket.onclose = () => {
       console.log('WebSocket disconnected')
       this.emit('connected', false)
-    })
+      this.reconnect()
+    }
 
-    this.socket.on('new_message', (message: ChatMessage) => {
-      this.emit('new_message', message)
-    })
+    this.socket.onerror = (error) => {
+      console.error('WebSocket error:', error)
+      this.emit('error', error)
+    }
 
-    this.socket.on('room_updated', (room: ChatRoom) => {
-      this.emit('room_updated', room)
-    })
-
-    this.socket.on('sync_update', (data: any) => {
-      this.emit('sync_update', data)
-    })
+    this.socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        const eventName = data.event
+        
+        switch (eventName) {
+          case 'new_message':
+            this.emit('new_message', data.data)
+            break
+          case 'room_updated':
+            this.emit('room_updated', data.data)
+            break
+          case 'rooms_update':
+            this.emit('rooms_update', data.data)
+            break
+          case 'initial_sync':
+            this.emit('initial_sync', data.data)
+            break
+          case 'messages':
+            this.emit('messages', data.data)
+            break
+          case 'pong':
+            // Handle pong response
+            break
+          default:
+            console.log('Unknown event:', eventName, data)
+        }
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error)
+      }
+    }
   }
 
   disconnect() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
+    }
+    
     if (this.socket) {
-      this.socket.disconnect()
+      this.socket.close()
       this.socket = null
     }
+  }
+
+  private reconnect() {
+    if (this.reconnectTimeout) {
+      return
+    }
+    
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null
+      console.log('Attempting to reconnect...')
+      this.connect(this.url)
+    }, 3000)
   }
 
   on(event: string, callback: Function) {
@@ -63,9 +105,14 @@ class WebSocketService {
   }
 
   sendMessage(event: string, data: any) {
-    if (this.socket?.connected) {
-      this.socket.emit(event, data)
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      const message = JSON.stringify({ event, ...data })
+      this.socket.send(message)
     }
+  }
+  
+  getMessages(roomId: string) {
+    this.sendMessage('get_messages', { roomId })
   }
 }
 

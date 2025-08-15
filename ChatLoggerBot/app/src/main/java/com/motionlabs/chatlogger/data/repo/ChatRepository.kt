@@ -4,11 +4,8 @@ import com.motionlabs.chatlogger.data.db.dao.ChatDao
 import com.motionlabs.chatlogger.data.db.entity.ChatMessage
 import com.motionlabs.chatlogger.data.db.entity.ChatRoom
 import kotlinx.coroutines.flow.Flow
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ChatRepository @Inject constructor(
+class ChatRepository(
     private val chatDao: ChatDao
 ) {
     fun getAllRooms(): Flow<List<ChatRoom>> = chatDao.getAllRooms()
@@ -49,6 +46,9 @@ class ChatRepository @Inject constructor(
 
     suspend fun getRecentMessagesForRoom(roomId: String, limit: Int = 100): List<ChatMessage> = 
         chatDao.getRecentMessagesForRoom(roomId, limit)
+
+    suspend fun deleteRoomWithMessages(room: ChatRoom) = 
+        chatDao.deleteRoomWithMessages(room)
 
     suspend fun deleteAllData() {
         chatDao.deleteAllMessages()

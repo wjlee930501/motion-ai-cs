@@ -10,10 +10,13 @@ import androidx.core.app.NotificationCompat
 import com.motionlabs.chatlogger.MainActivity
 import com.motionlabs.chatlogger.R
 import com.motionlabs.chatlogger.api.ApiService
+import com.motionlabs.chatlogger.api.WebSocketServer
+import com.motionlabs.chatlogger.notify.KakaoNotificationListener
 
 class ForegroundService : Service() {
     
     private var apiService: ApiService? = null
+    private var webSocketServer: WebSocketServer? = null
     
     companion object {
         private const val TAG = "ForegroundService"
@@ -27,6 +30,7 @@ class ForegroundService : Service() {
         createNotificationChannel()
         startForegroundServiceWithNotification()
         startApiService()
+        startWebSocketServer()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -41,6 +45,7 @@ class ForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         stopApiService()
+        stopWebSocketServer()
         Log.d(TAG, "ForegroundService destroyed")
     }
 
@@ -106,6 +111,27 @@ class ForegroundService : Service() {
             Log.d(TAG, "API Service stopped")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to stop API Service", e)
+        }
+    }
+    
+    private fun startWebSocketServer() {
+        try {
+            webSocketServer = WebSocketServer(this, 8081)
+            KakaoNotificationListener.webSocketServer = webSocketServer
+            Log.d(TAG, "WebSocket Server started on port 8081")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start WebSocket Server", e)
+        }
+    }
+    
+    private fun stopWebSocketServer() {
+        try {
+            KakaoNotificationListener.webSocketServer = null
+            webSocketServer?.stopServer()
+            webSocketServer = null
+            Log.d(TAG, "WebSocket Server stopped")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stop WebSocket Server", e)
         }
     }
 }

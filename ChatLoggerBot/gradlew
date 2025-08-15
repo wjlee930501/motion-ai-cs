@@ -6,11 +6,14 @@
 
 APP_NAME="Gradle"
 APP_BASE_NAME=`basename "$0"`
+APP_HOME=`pwd -P`
 
 JAVA_CMD="java"
 if [ -n "$JAVA_HOME" ] ; then
     JAVA_CMD="$JAVA_HOME/bin/java"
 fi
+
+CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 
 exec "$JAVA_CMD" -Xmx64m -Xms64m \
   -classpath "$CLASSPATH" \

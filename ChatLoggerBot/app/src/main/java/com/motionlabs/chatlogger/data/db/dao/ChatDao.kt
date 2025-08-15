@@ -25,7 +25,7 @@ interface ChatDao {
     @Delete
     suspend fun deleteRoom(room: ChatRoom)
 
-    @Query("SELECT * FROM chat_messages WHERE roomId = :roomId ORDER BY timestamp DESC")
+    @Query("SELECT * FROM chat_messages WHERE roomId = :roomId ORDER BY timestamp ASC")
     fun getMessagesForRoom(roomId: String): Flow<List<ChatMessage>>
 
     @Query("SELECT * FROM chat_messages WHERE roomId = :roomId ORDER BY timestamp DESC LIMIT :limit")
@@ -51,6 +51,15 @@ interface ChatDao {
 
     @Query("DELETE FROM chat_messages")
     suspend fun deleteAllMessages()
+
+    @Query("DELETE FROM chat_messages WHERE roomId = :roomId")
+    suspend fun deleteMessagesForRoom(roomId: String)
+
+    @Transaction
+    suspend fun deleteRoomWithMessages(room: ChatRoom) {
+        deleteMessagesForRoom(room.id)
+        deleteRoom(room)
+    }
 
     @Transaction
     suspend fun insertMessageWithRoom(roomName: String, sender: String, body: String, rawJson: String? = null) {
