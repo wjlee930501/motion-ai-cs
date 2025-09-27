@@ -8,6 +8,7 @@ import { SearchPage } from './pages/SearchPage'
 import { CSHomePage } from './pages/CSHomePage'
 import { CSAnalyticsPage } from './pages/CSAnalyticsPage'
 import { SimpleLoggerPage } from './pages/SimpleLoggerPage'
+import RequestsPage from './pages/Requests/RequestsPage'
 import wsService from './services/websocket'
 
 const queryClient = new QueryClient({
@@ -40,6 +41,7 @@ function App() {
         <div className="min-h-screen bg-gray-50">
           <Routes>
             <Route path="/" element={<SimpleLoggerPage />} />
+            <Route path="/requests" element={<RequestsPage />} />
             <Route path="/analytics" element={<CSAnalyticsPage />} />
             <Route path="/cs" element={<CSHomePage />} />
             <Route path="/basic" element={<HomePage />} />

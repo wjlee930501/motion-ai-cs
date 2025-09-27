@@ -10,6 +10,29 @@ services:
       - "3000:80"
     environment:
       - VITE_API_URL=http://localhost:8080
+      - VITE_SERVER_URL=http://localhost:4000
+    networks:
+      - chatlogger-network
+    depends_on:
+      - chatlogger-db
+      - chatlogger-server
+    restart: unless-stopped
+
+  chatlogger-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: chatlogger-server
+    ports:
+      - "4000:4000"
+    environment:
+      - DATABASE_URL=postgresql://chatlogger:chatlogger123@chatlogger-db:5432/chatlogger
+      - PORT=4000
+      - NODE_ENV=production
+      - ANDROID_API_URL=http://host.docker.internal:8080
+      - CORS_ORIGIN=http://localhost:3000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
     networks:
       - chatlogger-network
     depends_on:
@@ -25,7 +48,8 @@ services:
       POSTGRES_PASSWORD: chatlogger123
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./migrations/002_add_request_items.sql:/docker-entrypoint-initdb.d/02-request-items.sql
     ports:
       - "5432:5432"
     networks:
