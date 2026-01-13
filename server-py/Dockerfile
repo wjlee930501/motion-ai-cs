@@ -1,3 +1,4 @@
+# Python FastAPI Backend Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -6,6 +7,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -18,5 +20,17 @@ COPY . .
 # Set Python path
 ENV PYTHONPATH=/app
 
-# Default command (override in docker-compose)
-CMD ["uvicorn", "dashboard_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+# GCP Cloud Run uses PORT env variable (default 8080)
+ENV PORT=8080
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:$PORT/health || exit 1
+
+# Default command (Dashboard API)
+CMD ["sh", "-c", "uvicorn dashboard_api.main:app --host 0.0.0.0 --port $PORT"]
