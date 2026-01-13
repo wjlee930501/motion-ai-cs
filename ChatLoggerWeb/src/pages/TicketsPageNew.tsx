@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Wifi, WifiOff } from 'lucide-react'
 
 import { useAuthStore } from '@/stores/authStore'
 import ticketApi from '@/services/ticketApi'
@@ -13,12 +13,43 @@ import {
   MetricsPanel,
   FilterBar,
   TicketList,
-  TicketDetail
+  TicketDetail,
+  ClinicSidebar
 } from '@/components/dashboard'
 
 const DEFAULT_FILTERS: TicketFilters = {
   page: 1,
   limit: 20,
+}
+
+// Extract unique clinics from tickets
+interface ClinicInfo {
+  clinic_key: string
+  open_tickets: number
+  sla_breached: number
+  urgent_count: number
+}
+
+function extractClinics(tickets: Ticket[]): ClinicInfo[] {
+  const clinicMap = new Map<string, ClinicInfo>()
+
+  tickets.forEach(ticket => {
+    const existing = clinicMap.get(ticket.clinic_key)
+    if (existing) {
+      existing.open_tickets++
+      if (ticket.sla_breached) existing.sla_breached++
+      if (ticket.priority === 'urgent') existing.urgent_count++
+    } else {
+      clinicMap.set(ticket.clinic_key, {
+        clinic_key: ticket.clinic_key,
+        open_tickets: 1,
+        sla_breached: ticket.sla_breached ? 1 : 0,
+        urgent_count: ticket.priority === 'urgent' ? 1 : 0
+      })
+    }
+  })
+
+  return Array.from(clinicMap.values())
 }
 
 export function TicketsPageNew() {
@@ -28,7 +59,21 @@ export function TicketsPageNew() {
 
   const [filters, setFilters] = useState<TicketFilters>(DEFAULT_FILTERS)
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
+  const [selectedClinic, setSelectedClinic] = useState<string | undefined>()
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+
+  // Online/offline status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   // Auth check
   useEffect(() => {
@@ -41,18 +86,31 @@ export function TicketsPageNew() {
     }
   }, [isAuthenticated, navigate])
 
+  // Combine filters with selected clinic
+  const effectiveFilters = useMemo(() => ({
+    ...filters,
+    clinic_key: selectedClinic
+  }), [filters, selectedClinic])
+
   // Fetch tickets with auto-refresh
   const {
     data: ticketsData,
     isLoading: isLoadingTickets,
     refetch: refetchTickets
   } = useQuery(
-    ['tickets', filters],
-    () => ticketApi.getTickets(filters),
+    ['tickets', effectiveFilters],
+    () => ticketApi.getTickets(effectiveFilters),
     {
       refetchInterval: 10000,
       onSuccess: () => setLastRefresh(new Date())
     }
+  )
+
+  // Fetch all tickets for clinic sidebar (unfiltered, open tickets only)
+  const { data: allTicketsData } = useQuery(
+    ['tickets', 'sidebar'],
+    () => ticketApi.getTickets({ status: 'new,in_progress,waiting', limit: 500 }),
+    { refetchInterval: 30000 }
   )
 
   // Fetch metrics
@@ -83,6 +141,12 @@ export function TicketsPageNew() {
       },
     }
   )
+
+  // Extract clinics from all tickets
+  const clinics = useMemo(() => {
+    if (!allTicketsData?.tickets) return []
+    return extractClinics(allTicketsData.tickets)
+  }, [allTicketsData])
 
   // Handlers
   const handleStatusChange = useCallback((ticketId: string, newStatus: string) => {
@@ -116,6 +180,11 @@ export function TicketsPageNew() {
     setSelectedTicket(ticket)
   }, [])
 
+  const handleClinicSelect = useCallback((clinicKey: string | undefined) => {
+    setSelectedClinic(clinicKey)
+    setSelectedTicket(null) // Reset ticket selection when clinic changes
+  }, [])
+
   const handleManualRefresh = useCallback(() => {
     refetchTickets()
     queryClient.invalidateQueries('metrics')
@@ -131,52 +200,71 @@ export function TicketsPageNew() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="h-screen flex flex-col bg-slate-100 dark:bg-slate-950">
       {/* Header */}
       <Header
         userName={user?.name}
         onLogout={handleLogout}
       />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Metrics Panel */}
-        <div className="mb-6">
-          <MetricsPanel
-            metrics={metricsData?.metrics}
-            isLoading={isLoadingMetrics}
+      {/* Main Layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar - Clinics */}
+        <div className="w-72 flex-shrink-0 hidden lg:block">
+          <ClinicSidebar
+            clinics={clinics}
+            selectedClinic={selectedClinic}
+            onSelectClinic={handleClinicSelect}
+            isLoading={isLoadingTickets}
           />
         </div>
 
-        {/* Filter Bar */}
-        <div className="mb-6">
-          <FilterBar
-            filters={filters}
-            onFilterChange={handleFilterChange}
-            onReset={handleFilterReset}
-          />
-        </div>
-
-        {/* Refresh Info */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            마지막 업데이트: {formatLastRefresh()}
+        {/* Center - Ticket List */}
+        <div className="flex-1 flex flex-col min-w-0 border-x border-slate-200 dark:border-slate-800">
+          {/* Metrics Bar */}
+          <div className="flex-shrink-0 p-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+            <MetricsPanel
+              metrics={metricsData?.metrics}
+              isLoading={isLoadingMetrics}
+            />
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleManualRefresh}
-            className="text-gray-500 hover:text-gray-700"
-          >
-            <RefreshCw className={`w-4 h-4 mr-1 ${isLoadingTickets ? 'animate-spin' : ''}`} />
-            새로고침
-          </Button>
-        </div>
 
-        {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Ticket List - Takes 2 columns on large screens */}
-          <div className="lg:col-span-2">
+          {/* Filter Bar */}
+          <div className="flex-shrink-0 p-4 bg-slate-50 dark:bg-slate-900/50">
+            <FilterBar
+              filters={filters}
+              onFilterChange={handleFilterChange}
+              onReset={handleFilterReset}
+            />
+          </div>
+
+          {/* Refresh Info & Status */}
+          <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-1.5">
+                {isOnline ? (
+                  <Wifi className="w-3.5 h-3.5 text-emerald-500" />
+                ) : (
+                  <WifiOff className="w-3.5 h-3.5 text-red-500" />
+                )}
+                <span>{isOnline ? '실시간 연결됨' : '오프라인'}</span>
+              </div>
+              <span>•</span>
+              <span>마지막 업데이트: {formatLastRefresh()}</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleManualRefresh}
+              className="text-slate-500 hover:text-slate-700 h-7 px-2"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoadingTickets ? 'animate-spin' : ''}`} />
+              <span className="text-xs">새로고침</span>
+            </Button>
+          </div>
+
+          {/* Ticket List */}
+          <div className="flex-1 overflow-hidden p-4">
             <TicketList
               tickets={ticketsData?.tickets || []}
               selectedTicketId={selectedTicket?.ticket_id}
@@ -196,7 +284,7 @@ export function TicketsPageNew() {
                 >
                   이전
                 </Button>
-                <span className="text-sm text-gray-600 dark:text-gray-400">
+                <span className="text-sm text-slate-600 dark:text-slate-400">
                   {filters.page} / {Math.ceil(ticketsData.total / (filters.limit || 20))}
                 </span>
                 <Button
@@ -210,28 +298,47 @@ export function TicketsPageNew() {
               </div>
             )}
           </div>
+        </div>
 
-          {/* Ticket Detail - Takes 1 column */}
-          <div className="lg:col-span-1">
-            <TicketDetail
-              ticket={selectedTicket}
-              events={eventsData?.events || []}
-              onStatusChange={handleStatusChange}
-              onPriorityChange={handlePriorityChange}
-              isLoading={isLoadingEvents}
-            />
+        {/* Right Panel - Ticket Detail */}
+        <div className="w-[420px] flex-shrink-0 hidden xl:block p-4 bg-slate-50 dark:bg-slate-900/50">
+          <TicketDetail
+            ticket={selectedTicket}
+            events={eventsData?.events || []}
+            onStatusChange={handleStatusChange}
+            onPriorityChange={handlePriorityChange}
+            isLoading={isLoadingEvents}
+          />
+        </div>
+      </div>
+
+      {/* Mobile Ticket Detail Modal (for smaller screens) */}
+      {selectedTicket && (
+        <div className="xl:hidden fixed inset-0 z-50 bg-black/50 flex items-end">
+          <div className="w-full h-[80vh] bg-white dark:bg-slate-800 rounded-t-3xl animate-slide-in-up">
+            <div className="h-full p-4">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">대화 상세</h2>
+                <button
+                  onClick={() => setSelectedTicket(null)}
+                  className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="h-[calc(100%-48px)]">
+                <TicketDetail
+                  ticket={selectedTicket}
+                  events={eventsData?.events || []}
+                  onStatusChange={handleStatusChange}
+                  onPriorityChange={handlePriorityChange}
+                  isLoading={isLoadingEvents}
+                />
+              </div>
+            </div>
           </div>
         </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-gray-200 dark:border-gray-800 mt-8 py-6">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <p className="text-center text-sm text-gray-500 dark:text-gray-400">
-            MotionLabs CS Intelligence System v1.0
-          </p>
-        </div>
-      </footer>
+      )}
     </div>
   )
 }
