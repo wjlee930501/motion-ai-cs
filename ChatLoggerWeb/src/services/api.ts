@@ -1,7 +1,10 @@
 import axios from 'axios'
 import { ChatRoom, ChatMessage, SyncData, Stats } from '@/types'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+// Android device's local API server (NanoHTTPD)
+// This connects directly to the Android app running on the device
+// Use VITE_ANDROID_API_URL for Android device, or fallback to localhost for development
+const API_BASE_URL = import.meta.env.VITE_ANDROID_API_URL || import.meta.env.VITE_WS_URL?.replace('ws://', 'http://').replace(':8081', ':8080') || 'http://localhost:8080'
 
 const api = axios.create({
   baseURL: API_BASE_URL,

@@ -12,7 +12,8 @@ data class ParsedNotification(
     val sender: String,
     val message: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val rawJson: String? = null
+    val rawJson: String? = null,
+    val isGroup: Boolean? = null
 )
 
 class NotificationParser {
@@ -50,14 +51,15 @@ class NotificationParser {
             val message = bigText ?: text
             
             // 방 이름과 발신자 파싱
-            val (roomName, sender) = parseRoomAndSender(title, subText)
-            
+            val (roomName, sender, isGroup) = parseRoomAndSender(title, subText)
+
             if (roomName.isNotEmpty() && message.isNotEmpty()) {
                 ParsedNotification(
                     roomName = roomName,
                     sender = sender,
                     message = message,
-                    rawJson = rawJson
+                    rawJson = rawJson,
+                    isGroup = isGroup
                 )
             } else {
                 Log.w(TAG, "Incomplete notification data")
@@ -83,12 +85,14 @@ class NotificationParser {
                     val time = lastMessage.getLong("time", System.currentTimeMillis())
                     
                     val roomName = conversationTitle ?: sender
-                    
+                    val isGroup = conversationTitle != null && conversationTitle != sender
+
                     return ParsedNotification(
                         roomName = roomName,
                         sender = sender,
                         message = text,
-                        timestamp = time
+                        timestamp = time,
+                        isGroup = isGroup
                     )
                 }
             }
@@ -98,16 +102,16 @@ class NotificationParser {
         return null
     }
 
-    private fun parseRoomAndSender(title: String, subText: String?): Pair<String, String> {
+    private fun parseRoomAndSender(title: String, subText: String?): Triple<String, String, Boolean> {
         // 단톡방인 경우: title = "발신자", subText = "방 이름"
         // 1:1 대화인 경우: title = "발신자", subText = null
-        
+
         return if (!subText.isNullOrEmpty()) {
             // 단톡방
-            Pair(subText, title)
+            Triple(subText, title, true)
         } else {
             // 1:1 대화
-            Pair(title, title)
+            Triple(title, title, false)
         }
     }
 

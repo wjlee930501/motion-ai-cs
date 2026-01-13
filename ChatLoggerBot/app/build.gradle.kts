@@ -79,7 +79,10 @@ dependencies {
     
     // JSON
     implementation("com.google.code.gson:gson:2.10.1")
-    
+
+    // OkHttp for backend API calls
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
     // NanoHTTPD for embedded web server
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")

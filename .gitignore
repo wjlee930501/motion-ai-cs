@@ -42,6 +42,10 @@ postgres_data/
 # Python
 server-py/venv/
 server-py/*.db
+server-py/.env
 __pycache__/
 *.pyc
 tmpclaude-*
+
+# Root env file
+.env

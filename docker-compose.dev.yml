@@ -64,7 +64,7 @@ services:
   worker:
     build:
       context: ./server-py
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.worker
     container_name: cs-worker
     environment:
       DATABASE_URL: postgresql://csuser:localpass@postgres:5432/csdb
