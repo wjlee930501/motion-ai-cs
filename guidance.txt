@@ -211,7 +211,7 @@ app/
 - WorkManager 복구
 
 결과물:
-- app/build/outputs/apk/release/ChatLoggerBot.apk
+- a1pp/build/outputs/apk/release/ChatLoggerBot.apk
 - scripts/provision.sh
 
 질문 금지:

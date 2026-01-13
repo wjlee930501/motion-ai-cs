@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: cs-postgres
+    environment:
+      POSTGRES_USER: csuser
+      POSTGRES_PASSWORD: localpass
+      POSTGRES_DB: csdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./03-db.sql:/docker-entrypoint-initdb.d/init.sql
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U csuser -d csdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Ingest API (receives events from Android)
+  ingest-api:
+    build:
+      context: ./server-py
+      dockerfile: Dockerfile
+    container_name: cs-ingest-api
+    environment:
+      DATABASE_URL: postgresql://csuser:localpass@postgres:5432/csdb
+      DEVICE_KEY: local-dev-key
+      TZ: Asia/Seoul
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uvicorn ingest_api.main:app --host 0.0.0.0 --port 8001 --reload
+    volumes:
+      - ./server-py:/app
+
+  # Dashboard API (serves web dashboard)
+  dashboard-api:
+    build:
+      context: ./server-py
+      dockerfile: Dockerfile
+    container_name: cs-dashboard-api
+    environment:
+      DATABASE_URL: postgresql://csuser:localpass@postgres:5432/csdb
+      JWT_SECRET: local-jwt-secret-32-characters-minimum
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SLA_THRESHOLD_MINUTES: "20"
+      DASHBOARD_URL: http://localhost:3000
+      TZ: Asia/Seoul
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uvicorn dashboard_api.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./server-py:/app
+
+  # Worker (LLM classification, SLA check)
+  worker:
+    build:
+      context: ./server-py
+      dockerfile: Dockerfile
+    container_name: cs-worker
+    environment:
+      DATABASE_URL: postgresql://csuser:localpass@postgres:5432/csdb
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL_DEFAULT: claude-3-haiku-20240307
+      ANTHROPIC_MODEL_ESCALATE: claude-3-5-sonnet-20241022
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SLA_THRESHOLD_MINUTES: "20"
+      DASHBOARD_URL: http://localhost:3000
+      TZ: Asia/Seoul
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python -m worker.main
+    volumes:
+      - ./server-py:/app
+
+  # Web Dashboard (React)
+  web:
+    build:
+      context: ./ChatLoggerWeb
+      dockerfile: Dockerfile.dev
+    container_name: cs-web
+    environment:
+      VITE_API_URL: http://localhost:8000
+      VITE_INGEST_API_URL: http://localhost:8001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - dashboard-api
+    volumes:
+      - ./ChatLoggerWeb:/app
+      - /app/node_modules
+
+volumes:
+  pgdata:

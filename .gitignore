@@ -39,3 +39,8 @@ postgres_data/
 
 # Claude preferences
 .claude_preferences
+# Python
+server-py/venv/
+server-py/*.db
+__pycache__/
+*.pyc

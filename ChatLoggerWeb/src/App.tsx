@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from 'react-query'
 import { Toaster } from 'react-hot-toast'
 import { HomePage } from './pages/HomePage'
@@ -8,6 +8,8 @@ import { SearchPage } from './pages/SearchPage'
 import { CSHomePage } from './pages/CSHomePage'
 import { CSAnalyticsPage } from './pages/CSAnalyticsPage'
 import { SimpleLoggerPage } from './pages/SimpleLoggerPage'
+import { LoginPage } from './pages/LoginPage'
+import { TicketsPage } from './pages/TicketsPage'
 import RequestsPage from './pages/Requests/RequestsPage'
 import wsService from './services/websocket'
 
@@ -23,7 +25,7 @@ const queryClient = new QueryClient({
 function App() {
   useEffect(() => {
     console.log('App mounted')
-    // Connect to WebSocket on app start
+    // Connect to WebSocket on app start (optional, for legacy features)
     try {
       wsService.connect()
     } catch (error) {
@@ -40,11 +42,17 @@ function App() {
       <Router>
         <div className="min-h-screen bg-gray-50">
           <Routes>
-            <Route path="/" element={<SimpleLoggerPage />} />
+            {/* New v1 routes */}
+            <Route path="/" element={<Navigate to="/tickets" replace />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/tickets" element={<TicketsPage />} />
+
+            {/* Legacy routes */}
             <Route path="/requests" element={<RequestsPage />} />
             <Route path="/analytics" element={<CSAnalyticsPage />} />
             <Route path="/cs" element={<CSHomePage />} />
             <Route path="/basic" element={<HomePage />} />
+            <Route path="/logger" element={<SimpleLoggerPage />} />
             <Route path="/chat/:roomId" element={<ChatPage />} />
             <Route path="/search" element={<SearchPage />} />
           </Routes>
