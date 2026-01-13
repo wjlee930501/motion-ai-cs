@@ -4,8 +4,12 @@ import {
   Ticket,
   AlertTriangle,
   Zap,
-  Clock
+  Clock,
+  TrendingUp,
+  TrendingDown,
+  Minus
 } from 'lucide-react'
+import clsx from 'clsx'
 
 interface MetricsPanelProps {
   metrics: {
@@ -22,31 +26,44 @@ interface MetricCardProps {
   icon: React.ReactNode
   label: string
   value: string | number
-  color: string
+  trend?: number
+  gradientFrom: string
+  gradientTo: string
+  iconBg: string
   pulse?: boolean
   isLoading?: boolean
+  delay?: number
 }
 
 const MetricCard: React.FC<MetricCardProps> = ({
   icon,
   label,
   value,
-  color,
+  trend,
+  gradientFrom,
+  gradientTo,
+  iconBg,
   pulse = false,
-  isLoading = false
+  isLoading = false,
+  delay = 0
 }) => {
   const [displayValue, setDisplayValue] = useState(0)
+  const [isVisible, setIsVisible] = useState(false)
   const targetValue = typeof value === 'number' ? value : parseFloat(value) || 0
 
   useEffect(() => {
-    if (isLoading) {
-      setDisplayValue(0)
+    const timer = setTimeout(() => setIsVisible(true), delay)
+    return () => clearTimeout(timer)
+  }, [delay])
+
+  useEffect(() => {
+    if (isLoading || typeof value === 'string') {
       return
     }
 
-    const duration = 1000 // 1 second animation
-    const steps = 60
-    const increment = (targetValue - displayValue) / steps
+    const duration = 800
+    const steps = 40
+    const increment = targetValue / steps
     const stepDuration = duration / steps
 
     let currentStep = 0
@@ -56,60 +73,93 @@ const MetricCard: React.FC<MetricCardProps> = ({
         setDisplayValue(targetValue)
         clearInterval(timer)
       } else {
-        setDisplayValue(prev => prev + increment)
+        setDisplayValue(prev => Math.min(prev + increment, targetValue))
       }
     }, stepDuration)
 
     return () => clearInterval(timer)
-  }, [targetValue, isLoading])
+  }, [targetValue, isLoading, value])
+
+  const getTrendIcon = () => {
+    if (!trend) return <Minus className="w-3 h-3" />
+    if (trend > 0) return <TrendingUp className="w-3 h-3" />
+    return <TrendingDown className="w-3 h-3" />
+  }
+
+  const getTrendColor = () => {
+    if (!trend) return 'text-slate-400'
+    if (trend > 0) return 'text-emerald-500'
+    return 'text-red-500'
+  }
 
   return (
     <div
-      className={`
-        relative overflow-hidden
-        bg-white rounded-xl border border-gray-200
-        p-6
-        transition-all duration-300
-        hover:shadow-lg hover:scale-105 hover:-translate-y-1
-        ${pulse ? 'animate-pulse-border' : ''}
-      `}
+      className={clsx(
+        'relative overflow-hidden rounded-2xl border border-slate-200/80 dark:border-slate-700/50',
+        'bg-white dark:bg-slate-800',
+        'transition-all duration-500 ease-out',
+        'hover:shadow-card-hover hover:-translate-y-1',
+        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+      )}
     >
+      {/* Gradient Top Border */}
+      <div
+        className={clsx(
+          'absolute top-0 left-0 right-0 h-1 bg-gradient-to-r',
+          `from-${gradientFrom} to-${gradientTo}`
+        )}
+        style={{
+          background: `linear-gradient(to right, ${gradientFrom}, ${gradientTo})`
+        }}
+      />
+
+      {/* Pulse Effect */}
       {pulse && (
-        <div className="absolute inset-0 animate-pulse-glow" />
+        <div className="absolute inset-0 animate-pulse-soft">
+          <div
+            className="absolute inset-0 opacity-10"
+            style={{
+              background: `linear-gradient(135deg, ${gradientFrom}40, transparent)`
+            }}
+          />
+        </div>
       )}
 
-      <div className="relative z-10">
-        <div className="flex items-center justify-between mb-4">
+      <div className="relative p-5">
+        <div className="flex items-start justify-between mb-4">
+          {/* Icon */}
           <div
-            className={`
-              p-3 rounded-lg
-              ${color}
-              transition-transform duration-300
-              group-hover:scale-110
-            `}
+            className={clsx(
+              'p-3 rounded-xl transition-transform duration-300 hover:scale-110',
+              iconBg
+            )}
           >
             {icon}
           </div>
+
+          {/* Trend Badge */}
+          {trend !== undefined && (
+            <div className={clsx(
+              'flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium',
+              trend > 0 ? 'bg-emerald-100 dark:bg-emerald-900/30' : trend < 0 ? 'bg-red-100 dark:bg-red-900/30' : 'bg-slate-100 dark:bg-slate-700',
+              getTrendColor()
+            )}>
+              {getTrendIcon()}
+              <span>{Math.abs(trend)}%</span>
+            </div>
+          )}
         </div>
 
+        {/* Value */}
         <div className="space-y-1">
-          <div
-            className={`
-              text-3xl font-bold
-              transition-all duration-500
-              ${isLoading ? 'text-gray-300 animate-pulse' : 'text-gray-900'}
-            `}
-          >
-            {isLoading ? (
-              <div className="h-9 w-20 bg-gray-200 rounded animate-pulse" />
-            ) : (
-              <span className="tabular-nums">
-                {typeof value === 'string' ? value : Math.round(displayValue).toLocaleString()}
-              </span>
-            )}
-          </div>
-
-          <div className="text-sm font-medium text-gray-600">
+          {isLoading ? (
+            <div className="h-9 w-24 bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse" />
+          ) : (
+            <div className="text-3xl font-bold text-slate-900 dark:text-white tabular-nums">
+              {typeof value === 'string' ? value : Math.round(displayValue).toLocaleString()}
+            </div>
+          )}
+          <div className="text-sm font-medium text-slate-500 dark:text-slate-400">
             {label}
           </div>
         </div>
@@ -128,81 +178,74 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({
 
   const metricsData = [
     {
-      icon: <PhoneIncoming className="w-6 h-6 text-blue-600" />,
+      icon: <PhoneIncoming className="w-6 h-6 text-blue-600 dark:text-blue-400" />,
       label: '오늘 인바운드',
       value: metrics?.today_inbound || 0,
-      color: 'bg-blue-50',
+      trend: 12,
+      gradientFrom: '#3b82f6',
+      gradientTo: '#60a5fa',
+      iconBg: 'bg-blue-100 dark:bg-blue-900/40',
       pulse: false,
     },
     {
-      icon: <Ticket className="w-6 h-6 text-green-600" />,
+      icon: <Ticket className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />,
       label: '열린 티켓',
       value: metrics?.open_tickets || 0,
-      color: 'bg-green-50',
+      trend: -5,
+      gradientFrom: '#10b981',
+      gradientTo: '#34d399',
+      iconBg: 'bg-emerald-100 dark:bg-emerald-900/40',
       pulse: false,
     },
     {
-      icon: <AlertTriangle className="w-6 h-6 text-red-600" />,
+      icon: <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />,
       label: 'SLA 초과',
       value: metrics?.sla_breached_count || 0,
-      color: 'bg-red-50',
+      gradientFrom: '#ef4444',
+      gradientTo: '#f87171',
+      iconBg: 'bg-red-100 dark:bg-red-900/40',
       pulse: (metrics?.sla_breached_count || 0) > 0,
     },
     {
-      icon: <Zap className="w-6 h-6 text-orange-600" />,
+      icon: <Zap className="w-6 h-6 text-amber-600 dark:text-amber-400" />,
       label: '긴급',
       value: metrics?.urgent_count || 0,
-      color: 'bg-orange-50',
+      gradientFrom: '#f59e0b',
+      gradientTo: '#fbbf24',
+      iconBg: 'bg-amber-100 dark:bg-amber-900/40',
       pulse: (metrics?.urgent_count || 0) > 0,
     },
     {
-      icon: <Clock className="w-6 h-6 text-purple-600" />,
+      icon: <Clock className="w-6 h-6 text-purple-600 dark:text-purple-400" />,
       label: '평균 응답시간',
       value: `${avgResponseMin}분`,
-      color: 'bg-purple-50',
+      trend: -15,
+      gradientFrom: '#8b5cf6',
+      gradientTo: '#a78bfa',
+      iconBg: 'bg-purple-100 dark:bg-purple-900/40',
       pulse: false,
     },
   ]
 
   return (
     <div className="w-full">
-      <div
-        className="
-          grid gap-4
-          grid-cols-2
-          sm:grid-cols-3
-          lg:grid-cols-5
-        "
-      >
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         {metricsData.map((metric, index) => (
           <MetricCard
             key={index}
             icon={metric.icon}
             label={metric.label}
             value={metric.value}
-            color={metric.color}
+            trend={metric.trend}
+            gradientFrom={metric.gradientFrom}
+            gradientTo={metric.gradientTo}
+            iconBg={metric.iconBg}
             pulse={metric.pulse}
             isLoading={isLoading}
+            delay={index * 100}
           />
         ))}
       </div>
-
-{/* Pulse animation styles */}
-      <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes pulse-border {
-          0%, 100% { border-color: rgb(239, 68, 68); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-          50% { border-color: rgb(220, 38, 38); box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1); }
-        }
-        @keyframes pulse-glow {
-          0%, 100% { opacity: 0; }
-          50% { opacity: 0.1; }
-        }
-        .animate-pulse-border { animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-        .animate-pulse-glow { animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-        @media (prefers-reduced-motion: reduce) {
-          .animate-pulse-border, .animate-pulse-glow { animation: none; }
-        }
-      `}} />
     </div>
   )
 }
