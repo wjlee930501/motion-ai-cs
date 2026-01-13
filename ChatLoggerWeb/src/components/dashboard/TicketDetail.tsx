@@ -20,13 +20,6 @@ const statusConfig = {
   done: { label: '완료', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
 };
 
-const priorityConfig = {
-  low: { label: '낮음', color: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' },
-  normal: { label: '보통', color: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' },
-  high: { label: '높음', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' },
-  urgent: { label: '긴급', color: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' },
-};
-
 const TicketDetail: React.FC<TicketDetailProps> = ({
   ticket,
   events,
@@ -59,7 +52,6 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
   }
 
   const status = statusConfig[ticket.status as keyof typeof statusConfig] || statusConfig.new;
-  const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
 
   return (
     <div className="h-full flex flex-col bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-card overflow-hidden animate-fade-in">

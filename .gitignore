@@ -44,3 +44,4 @@ server-py/venv/
 server-py/*.db
 __pycache__/
 *.pyc
+tmpclaude-*
