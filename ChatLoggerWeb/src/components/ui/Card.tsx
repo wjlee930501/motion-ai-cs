@@ -4,9 +4,11 @@ import clsx from 'clsx';
 export interface CardProps {
   children: React.ReactNode;
   className?: string;
-  padding?: 'none' | 'sm' | 'md' | 'lg';
-  shadow?: 'none' | 'sm' | 'md' | 'lg';
+  padding?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
+  shadow?: 'none' | 'sm' | 'md' | 'lg' | 'xl' | 'glow';
   hover?: boolean;
+  glass?: boolean;
+  gradient?: boolean;
   onClick?: () => void;
 }
 
@@ -20,6 +22,7 @@ const paddingStyles = {
   sm: 'p-3',
   md: 'p-4',
   lg: 'p-6',
+  xl: 'p-8',
 };
 
 const shadowStyles = {
@@ -27,6 +30,8 @@ const shadowStyles = {
   sm: 'shadow-sm',
   md: 'shadow-md',
   lg: 'shadow-lg',
+  xl: 'shadow-xl',
+  glow: 'shadow-glow',
 };
 
 export const Card: React.FC<CardProps> & {
@@ -39,15 +44,21 @@ export const Card: React.FC<CardProps> & {
   padding = 'md',
   shadow = 'sm',
   hover = false,
+  glass = false,
+  gradient = false,
   onClick,
 }) => {
   return (
     <div
       className={clsx(
-        'bg-white rounded-lg border border-gray-200 transition-all duration-200',
+        'rounded-2xl border transition-all duration-300',
+        glass
+          ? 'bg-white/70 backdrop-blur-xl border-white/20 dark:bg-slate-800/70 dark:border-slate-700/50'
+          : 'bg-white border-slate-200/80 dark:bg-slate-800 dark:border-slate-700/50',
         shadowStyles[shadow],
         paddingStyles[padding],
-        hover && 'hover:shadow-md hover:border-gray-300 cursor-pointer',
+        hover && 'hover:shadow-card-hover hover:-translate-y-1 hover:border-slate-300 dark:hover:border-slate-600 cursor-pointer',
+        gradient && 'bg-gradient-to-br from-white to-slate-50 dark:from-slate-800 dark:to-slate-900',
         onClick && 'cursor-pointer',
         className
       )}
@@ -63,7 +74,7 @@ export const CardHeader: React.FC<CardSectionProps> = ({
   className,
 }) => {
   return (
-    <div className={clsx('border-b border-gray-200 pb-3 mb-3', className)}>
+    <div className={clsx('border-b border-slate-200/80 dark:border-slate-700/50 pb-4 mb-4', className)}>
       {children}
     </div>
   );
@@ -81,7 +92,7 @@ export const CardFooter: React.FC<CardSectionProps> = ({
   className,
 }) => {
   return (
-    <div className={clsx('border-t border-gray-200 pt-3 mt-3', className)}>
+    <div className={clsx('border-t border-slate-200/80 dark:border-slate-700/50 pt-4 mt-4', className)}>
       {children}
     </div>
   );

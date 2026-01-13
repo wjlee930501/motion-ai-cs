@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
+import { MessageSquare, Clock, AlertTriangle, Tag, ChevronRight, Zap } from 'lucide-react';
+import clsx from 'clsx';
 import { Ticket, TicketEvent } from '../../types/ticket.types';
 
 interface TicketDetailProps {
@@ -11,6 +13,20 @@ interface TicketDetailProps {
   isLoading?: boolean;
 }
 
+const statusConfig = {
+  new: { label: '신규', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
+  in_progress: { label: '진행중', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
+  waiting: { label: '대기중', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
+  done: { label: '완료', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+};
+
+const priorityConfig = {
+  low: { label: '낮음', color: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' },
+  normal: { label: '보통', color: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' },
+  high: { label: '높음', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' },
+  urgent: { label: '긴급', color: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' },
+};
+
 const TicketDetail: React.FC<TicketDetailProps> = ({
   ticket,
   events,
@@ -20,110 +36,66 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
 }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to latest message
   useEffect(() => {
     if (chatEndRef.current && events.length > 0) {
       chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [events]);
 
-  // Empty state when no ticket selected
   if (!ticket) {
     return (
-      <div className="h-full flex items-center justify-center bg-gray-50 rounded-lg">
-        <div className="text-center">
-          <div className="text-gray-400 mb-2">
-            <svg
-              className="mx-auto h-12 w-12"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-              />
-            </svg>
+      <div className="h-full flex items-center justify-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200/80 dark:border-slate-700/50">
+        <div className="text-center p-8">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center">
+            <MessageSquare className="w-8 h-8 text-slate-400 dark:text-slate-500" />
           </div>
-          <h3 className="text-sm font-medium text-gray-900">티켓을 선택하세요</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            왼쪽 목록에서 티켓을 선택하면 상세 정보가 표시됩니다
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1">티켓을 선택하세요</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            왼쪽 목록에서 티켓을 선택하면<br />상세 정보가 표시됩니다
           </p>
         </div>
       </div>
     );
   }
 
-  // Status badge color
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'new':
-        return 'bg-blue-100 text-blue-800';
-      case 'in_progress':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'waiting':
-        return 'bg-purple-100 text-purple-800';
-      case 'done':
-        return 'bg-green-100 text-green-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // Status label
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'new':
-        return '신규';
-      case 'in_progress':
-        return '진행중';
-      case 'waiting':
-        return '대기중';
-      case 'done':
-        return '완료';
-      default:
-        return status;
-    }
-  };
+  const status = statusConfig[ticket.status as keyof typeof statusConfig] || statusConfig.new;
+  const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
 
   return (
-    <div className="h-full flex flex-col bg-white rounded-lg shadow-sm transition-all duration-300">
+    <div className="h-full flex flex-col bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-card overflow-hidden animate-fade-in">
       {/* Header */}
-      <div className="border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-gray-900">
-              {ticket.clinic_key}
-            </h2>
-            <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
-                ticket.status
-              )}`}
-            >
-              {getStatusLabel(ticket.status)}
-            </span>
-            {ticket.sla_breached && (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                SLA 초과
+      <div className="border-b border-slate-200 dark:border-slate-700 px-5 py-4">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate">
+                {ticket.clinic_key}
+              </h2>
+              <span className={clsx('text-xs px-2.5 py-1 rounded-full font-medium', status.color)}>
+                {status.label}
               </span>
-            )}
-          </div>
-          <div className="text-xs text-gray-500">
-            ID: {ticket.ticket_id.slice(0, 8)}...
+              {ticket.sla_breached && (
+                <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-red-500 text-white animate-pulse">
+                  <AlertTriangle className="w-3 h-3" />
+                  SLA 초과
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+              ID: {ticket.ticket_id.slice(0, 12)}...
+            </p>
           </div>
         </div>
 
-        {/* Quick Action Buttons */}
-        <div className="flex gap-2">
-          <div className="flex-1">
+        {/* Quick Actions */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">상태</label>
             <select
               value={ticket.status}
               onChange={(e) => onStatusChange(ticket.ticket_id, e.target.value)}
               disabled={isLoading}
-              className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full text-sm px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 transition-all duration-200 disabled:opacity-50 cursor-pointer"
             >
               <option value="new">신규</option>
               <option value="in_progress">진행중</option>
@@ -131,12 +103,13 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
               <option value="done">완료</option>
             </select>
           </div>
-          <div className="flex-1">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">우선순위</label>
             <select
               value={ticket.priority}
               onChange={(e) => onPriorityChange(ticket.ticket_id, e.target.value)}
               disabled={isLoading}
-              className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full text-sm px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 transition-all duration-200 disabled:opacity-50 cursor-pointer"
             >
               <option value="low">낮음</option>
               <option value="normal">보통</option>
@@ -148,72 +121,94 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
       </div>
 
       {/* Info Section */}
-      <div className="border-b border-gray-200 px-6 py-4 bg-gray-50">
-        <div className="space-y-3">
+      <div className="border-b border-slate-200 dark:border-slate-700 px-5 py-4 bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="space-y-4">
           {ticket.topic_primary && (
-            <div>
-              <h3 className="text-xs font-medium text-gray-500 mb-1">주제</h3>
-              <p className="text-sm text-gray-900">{ticket.topic_primary}</p>
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40">
+                <Tag className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">주제</h3>
+                <p className="text-sm text-slate-900 dark:text-white">{ticket.topic_primary}</p>
+              </div>
             </div>
           )}
           {ticket.summary_latest && (
-            <div>
-              <h3 className="text-xs font-medium text-gray-500 mb-1">요약</h3>
-              <p className="text-sm text-gray-900">{ticket.summary_latest}</p>
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/40">
+                <MessageSquare className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">요약</h3>
+                <p className="text-sm text-slate-900 dark:text-white">{ticket.summary_latest}</p>
+              </div>
             </div>
           )}
           {ticket.next_action && (
-            <div>
-              <h3 className="text-xs font-medium text-gray-500 mb-1">다음 액션</h3>
-              <p className="text-sm text-gray-900 font-medium">{ticket.next_action}</p>
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/40">
+                <Zap className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">다음 액션</h3>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">{ticket.next_action}</p>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Chat History Section */}
+      {/* Chat History */}
       <div className="flex-1 overflow-hidden flex flex-col">
-        <div className="px-6 py-3 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-900">
-            대화 내역 ({events.length})
+        <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+            <MessageSquare className="w-4 h-4" />
+            대화 내역
           </h3>
+          <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-full">
+            {events.length}
+          </span>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 max-h-96">
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 scrollbar-thin max-h-80">
           {events.length === 0 ? (
-            <div className="text-center py-8 text-gray-500 text-sm">
-              대화 내역이 없습니다
+            <div className="text-center py-8">
+              <p className="text-slate-500 dark:text-slate-400 text-sm">대화 내역이 없습니다</p>
             </div>
           ) : (
-            events.map((event) => (
+            events.map((event, index) => (
               <div
                 key={event.event_id}
-                className={`flex ${
+                className={clsx(
+                  'flex animate-fade-in',
                   event.sender_type === 'staff' ? 'justify-end' : 'justify-start'
-                } transition-all duration-200`}
+                )}
+                style={{ animationDelay: `${index * 50}ms` }}
               >
                 <div
-                  className={`max-w-[75%] rounded-lg px-4 py-3 shadow-sm ${
+                  className={clsx(
+                    'max-w-[80%] rounded-2xl px-4 py-3 shadow-sm',
                     event.sender_type === 'staff'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-200 text-gray-900'
-                  }`}
+                      ? 'bg-gradient-to-br from-brand-500 to-brand-600 text-white rounded-br-md'
+                      : 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 rounded-bl-md'
+                  )}
                 >
-                  <div className="flex items-baseline gap-2 mb-1">
-                    <span className="text-xs font-semibold">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className={clsx(
+                      'text-xs font-semibold',
+                      event.sender_type === 'staff' ? 'text-white/90' : 'text-slate-700 dark:text-slate-300'
+                    )}>
                       {event.sender_name}
                     </span>
-                    <span
-                      className={`text-xs ${
-                        event.sender_type === 'staff'
-                          ? 'text-blue-100'
-                          : 'text-gray-500'
-                      }`}
-                    >
+                    <span className={clsx(
+                      'text-xs',
+                      event.sender_type === 'staff' ? 'text-white/60' : 'text-slate-400 dark:text-slate-500'
+                    )}>
                       {format(new Date(event.received_at), 'HH:mm', { locale: ko })}
                     </span>
                   </div>
-                  <p className="text-sm whitespace-pre-wrap break-words">
+                  <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
                     {event.text_raw}
                   </p>
                 </div>
@@ -224,24 +219,26 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
         </div>
       </div>
 
-      {/* Footer with metadata */}
-      <div className="border-t border-gray-200 px-6 py-3 bg-gray-50">
-        <div className="flex justify-between text-xs text-gray-500">
-          <div className="flex gap-4">
+      {/* Footer */}
+      <div className="border-t border-slate-200 dark:border-slate-700 px-5 py-3 bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="flex flex-wrap justify-between gap-4 text-xs">
+          <div className="flex flex-wrap gap-4">
             {ticket.first_inbound_at && (
-              <span>
-                최초 수신: {format(new Date(ticket.first_inbound_at), 'MM/dd HH:mm', { locale: ko })}
-              </span>
+              <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                <Clock className="w-3.5 h-3.5" />
+                <span>최초 수신: {format(new Date(ticket.first_inbound_at), 'MM/dd HH:mm', { locale: ko })}</span>
+              </div>
             )}
             {ticket.first_response_sec && (
-              <span>
-                첫 응답 시간: {Math.floor(ticket.first_response_sec / 60)}분
-              </span>
+              <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                <ChevronRight className="w-3.5 h-3.5" />
+                <span>첫 응답: {Math.floor(ticket.first_response_sec / 60)}분</span>
+              </div>
             )}
           </div>
           {ticket.updated_at && (
-            <span>
-              최근 업데이트: {format(new Date(ticket.updated_at), 'MM/dd HH:mm', { locale: ko })}
+            <span className="text-slate-400 dark:text-slate-500">
+              업데이트: {format(new Date(ticket.updated_at), 'MM/dd HH:mm', { locale: ko })}
             </span>
           )}
         </div>
