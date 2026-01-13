@@ -1,5 +1,16 @@
-import { Filter, RotateCcw } from 'lucide-react'
-import { Button } from '../ui'
+import { useState } from 'react'
+import {
+  Filter,
+  RotateCcw,
+  Inbox,
+  Clock,
+  AlertTriangle,
+  CheckCircle2,
+  Zap,
+  ChevronDown,
+  X
+} from 'lucide-react'
+import clsx from 'clsx'
 import { TicketFilters } from '@/types/ticket.types'
 
 interface FilterBarProps {
@@ -8,73 +19,200 @@ interface FilterBarProps {
   onReset: () => void
 }
 
-export function FilterBar({ filters, onFilterChange, onReset }: FilterBarProps) {
-  const hasActiveFilters = filters.status || filters.priority || filters.sla_breached
+type StatusTab = 'all' | 'new' | 'in_progress' | 'waiting' | 'done'
 
-  const selectClasses = "min-w-[140px] px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+const statusTabs: { key: StatusTab; label: string; icon: React.ElementType; color?: string }[] = [
+  { key: 'all', label: '전체', icon: Inbox },
+  { key: 'new', label: '신규', icon: Clock, color: 'text-blue-600' },
+  { key: 'in_progress', label: '진행중', icon: Zap, color: 'text-amber-600' },
+  { key: 'waiting', label: '대기', icon: AlertTriangle, color: 'text-purple-600' },
+  { key: 'done', label: '완료', icon: CheckCircle2, color: 'text-emerald-600' },
+]
+
+export function FilterBar({ filters, onFilterChange, onReset }: FilterBarProps) {
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  const currentStatus = (filters.status || 'all') as StatusTab
+  const hasAdvancedFilters = filters.priority || filters.sla_breached
+
+  const handleStatusChange = (status: StatusTab) => {
+    onFilterChange({
+      ...filters,
+      status: status === 'all' ? undefined : status,
+      page: 1
+    })
+  }
+
+  const priorityOptions = [
+    { value: '', label: '모든 우선순위' },
+    { value: 'urgent', label: '긴급', dot: 'bg-red-500' },
+    { value: 'high', label: '높음', dot: 'bg-orange-500' },
+    { value: 'normal', label: '보통', dot: 'bg-slate-400' },
+    { value: 'low', label: '낮음', dot: 'bg-slate-300' },
+  ]
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-          <Filter className="w-4 h-4" />
-          <span className="text-sm font-medium">필터</span>
+    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700/50 overflow-hidden">
+      {/* Main Filter Tabs */}
+      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700">
+        {/* Status Tabs */}
+        <div className="flex-1 flex">
+          {statusTabs.map((tab) => {
+            const Icon = tab.icon
+            const isActive = currentStatus === tab.key
+
+            return (
+              <button
+                key={tab.key}
+                onClick={() => handleStatusChange(tab.key)}
+                className={clsx(
+                  'relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all',
+                  'hover:bg-slate-50 dark:hover:bg-slate-700/50',
+                  isActive
+                    ? 'text-brand-600 dark:text-brand-400'
+                    : 'text-slate-500 dark:text-slate-400'
+                )}
+              >
+                <Icon className={clsx(
+                  'w-4 h-4',
+                  isActive ? 'text-brand-500' : tab.color || 'text-slate-400'
+                )} />
+                <span>{tab.label}</span>
+
+                {/* Active indicator */}
+                {isActive && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-500" />
+                )}
+              </button>
+            )
+          })}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 flex-1">
-          <select
-            value={filters.status || ''}
-            onChange={(e) => onFilterChange({ ...filters, status: e.target.value || undefined, page: 1 })}
-            className={selectClasses}
+        {/* Advanced Filter Toggle */}
+        <div className="flex items-center gap-2 px-3">
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className={clsx(
+              'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all',
+              showAdvanced || hasAdvancedFilters
+                ? 'bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400'
+                : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'
+            )}
           >
-            <option value="">모든 상태</option>
-            <option value="new">신규</option>
-            <option value="in_progress">진행중</option>
-            <option value="waiting">대기</option>
-            <option value="done">완료</option>
-          </select>
+            <Filter className="w-4 h-4" />
+            <span>필터</span>
+            {hasAdvancedFilters && (
+              <span className="w-5 h-5 flex items-center justify-center rounded-full bg-brand-500 text-white text-xs">
+                {(filters.priority ? 1 : 0) + (filters.sla_breached ? 1 : 0)}
+              </span>
+            )}
+            <ChevronDown className={clsx(
+              'w-4 h-4 transition-transform',
+              showAdvanced && 'rotate-180'
+            )} />
+          </button>
 
-          <select
-            value={filters.priority || ''}
-            onChange={(e) => onFilterChange({ ...filters, priority: e.target.value || undefined, page: 1 })}
-            className={selectClasses}
-          >
-            <option value="">모든 우선순위</option>
-            <option value="urgent">긴급</option>
-            <option value="high">높음</option>
-            <option value="normal">보통</option>
-            <option value="low">낮음</option>
-          </select>
-
-          <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-colors">
-            <input
-              type="checkbox"
-              checked={filters.sla_breached === true}
-              onChange={(e) => onFilterChange({
-                ...filters,
-                sla_breached: e.target.checked ? true : undefined,
-                page: 1
-              })}
-              className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
-            />
-            <span className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-              SLA 초과만
-            </span>
-          </label>
+          {hasAdvancedFilters && (
+            <button
+              onClick={onReset}
+              className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              초기화
+            </button>
+          )}
         </div>
-
-        {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onReset}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            <RotateCcw className="w-4 h-4 mr-1" />
-            초기화
-          </Button>
-        )}
       </div>
+
+      {/* Advanced Filters */}
+      {showAdvanced && (
+        <div className="p-4 bg-slate-50/50 dark:bg-slate-900/30 border-t border-slate-200 dark:border-slate-700 animate-fade-in">
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Priority Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-600 dark:text-slate-400">우선순위:</span>
+              <div className="flex gap-1">
+                {priorityOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => onFilterChange({
+                      ...filters,
+                      priority: opt.value || undefined,
+                      page: 1
+                    })}
+                    className={clsx(
+                      'flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-all',
+                      filters.priority === opt.value || (!filters.priority && !opt.value)
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm border border-slate-200 dark:border-slate-600'
+                        : 'text-slate-500 hover:bg-white dark:hover:bg-slate-800'
+                    )}
+                  >
+                    {opt.dot && <span className={clsx('w-2 h-2 rounded-full', opt.dot)} />}
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* SLA Filter */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onFilterChange({
+                  ...filters,
+                  sla_breached: filters.sla_breached ? undefined : true,
+                  page: 1
+                })}
+                className={clsx(
+                  'flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-all',
+                  filters.sla_breached
+                    ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
+                    : 'text-slate-500 hover:bg-white dark:hover:bg-slate-800 border border-transparent'
+                )}
+              >
+                <AlertTriangle className={clsx(
+                  'w-4 h-4',
+                  filters.sla_breached && 'animate-pulse'
+                )} />
+                SLA 초과만
+                {filters.sla_breached && (
+                  <X className="w-3.5 h-3.5 ml-1" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Active Filters Summary */}
+          {hasAdvancedFilters && (
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+              <span className="text-xs text-slate-500">적용된 필터:</span>
+              <div className="flex gap-2">
+                {filters.priority && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-full">
+                    우선순위: {priorityOptions.find(o => o.value === filters.priority)?.label}
+                    <button
+                      onClick={() => onFilterChange({ ...filters, priority: undefined, page: 1 })}
+                      className="hover:text-red-500"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+                {filters.sla_breached && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full">
+                    SLA 초과
+                    <button
+                      onClick={() => onFilterChange({ ...filters, sla_breached: undefined, page: 1 })}
+                      className="hover:text-red-900"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
