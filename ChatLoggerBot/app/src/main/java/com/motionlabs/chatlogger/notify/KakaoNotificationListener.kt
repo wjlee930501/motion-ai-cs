@@ -4,7 +4,9 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import com.motionlabs.chatlogger.api.BackendApiClient
 import com.motionlabs.chatlogger.api.WebSocketServer
+import com.motionlabs.chatlogger.config.SettingsManager
 import com.motionlabs.chatlogger.data.db.AppDatabase
 import com.motionlabs.chatlogger.data.db.entity.ChatMessage
 import com.motionlabs.chatlogger.data.db.entity.ChatRoom
@@ -15,7 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class KakaoNotificationListener : NotificationListenerService() {
-    
+
     companion object {
         private const val TAG = "KakaoNotificationListener"
         private const val KAKAO_PACKAGE = "com.kakao.talk"
@@ -25,11 +27,15 @@ class KakaoNotificationListener : NotificationListenerService() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var database: AppDatabase
     private lateinit var parser: NotificationParser
+    private lateinit var backendClient: BackendApiClient
+    private lateinit var settingsManager: SettingsManager
 
     override fun onCreate() {
         super.onCreate()
         database = AppDatabase.getDatabase(this)
         parser = NotificationParser()
+        backendClient = BackendApiClient.getInstance(this)
+        settingsManager = SettingsManager.getInstance(this)
         Log.d(TAG, "NotificationListenerService created")
     }
 
@@ -47,7 +53,7 @@ class KakaoNotificationListener : NotificationListenerService() {
                 
                 parsedData?.let { data ->
                     Log.d(TAG, "Parsed notification - Room: ${data.roomName}, Sender: ${data.sender}, Message: ${data.message}")
-                    
+
                     // 데이터베이스에 저장
                     database.chatDao().insertMessageWithRoom(
                         roomName = data.roomName,
@@ -55,7 +61,26 @@ class KakaoNotificationListener : NotificationListenerService() {
                         body = data.message,
                         rawJson = data.rawJson
                     )
-                    
+
+                    // 백엔드 서버로 전송 (Ingest API)
+                    if (settingsManager.backendEnabled) {
+                        try {
+                            val result = backendClient.sendEvent(
+                                chatRoom = data.roomName,
+                                senderName = data.sender,
+                                text = data.message,
+                                isGroup = data.isGroup
+                            )
+                            result.onSuccess { response ->
+                                Log.d(TAG, "Event sent to backend: ${response.eventId}, deduped: ${response.deduped}")
+                            }.onFailure { error ->
+                                Log.e(TAG, "Failed to send event to backend: ${error.message}")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error sending event to backend", e)
+                        }
+                    }
+
                     // WebSocket으로 브로드캐스트
                     val room = database.chatDao().getRoomByName(data.roomName)
                     room?.let { chatRoom ->
@@ -67,13 +92,13 @@ class KakaoNotificationListener : NotificationListenerService() {
                             isFromMe = false,
                             rawJson = data.rawJson
                         )
-                        
+
                         webSocketServer?.broadcastNewMessage(message)
                         webSocketServer?.broadcastRoomUpdate(chatRoom.copy(
                             lastMessage = data.message,
                             lastMessageAt = System.currentTimeMillis()
                         ))
-                        
+
                         Log.d(TAG, "Broadcasted message via WebSocket")
                     }
                 }

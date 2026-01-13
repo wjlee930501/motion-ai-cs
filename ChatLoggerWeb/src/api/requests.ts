@@ -1,12 +1,24 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:4000/api/v1';
+// Use Dashboard API for ticket/request operations
+// Legacy endpoints have been migrated to Python backend
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+// Add auth interceptor
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('cs_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 export interface RequestFilters {
