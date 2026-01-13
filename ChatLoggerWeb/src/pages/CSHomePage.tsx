@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { CSChatRoomList } from '@/components/cs/CSChatRoomList'
 import { ChatMessageList } from '@/components/ChatMessageList'
 import { CustomerInfoPanel } from '@/components/cs/CustomerInfoPanel'
@@ -120,7 +119,6 @@ const mockStats = {
 type ViewMode = 'dashboard' | 'chat' | 'customers' | 'analytics'
 
 export const CSHomePage: React.FC = () => {
-  const navigate = useNavigate()
   const [viewMode, setViewMode] = useState<ViewMode>('chat')
   const [selectedRoom, setSelectedRoom] = useState<any>(null)
   const [messages, setMessages] = useState<any[]>([])

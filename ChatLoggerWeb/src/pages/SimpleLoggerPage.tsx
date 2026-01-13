@@ -8,7 +8,6 @@ import {
   FiClock
 } from 'react-icons/fi'
 import { format } from 'date-fns'
-import { ko } from 'date-fns/locale'
 import { chatApi } from '@/services/api'
 import wsService from '@/services/websocket'
 import toast from 'react-hot-toast'

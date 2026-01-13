@@ -3,7 +3,6 @@ import {
   LoginRequest,
   LoginResponse,
   User,
-  Ticket,
   TicketListResponse,
   TicketDetailResponse,
   TicketUpdate,

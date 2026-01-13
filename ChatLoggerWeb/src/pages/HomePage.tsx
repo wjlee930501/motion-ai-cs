@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useChatStore } from '@/stores/chatStore'
 import { ChatRoomList } from '@/components/ChatRoomList'
 import { ChatMessageList } from '@/components/ChatMessageList'
-import { SearchBar } from '@/components/SearchBar'
 import { StatsPanel } from '@/components/StatsPanel'
 import { chatApi } from '@/services/api'
 import wsService from '@/services/websocket'
@@ -17,7 +16,6 @@ export const HomePage: React.FC = () => {
     rooms,
     currentRoom,
     messages,
-    loading,
     fetchRooms,
     fetchMessages,
     setCurrentRoom,
@@ -49,7 +47,7 @@ export const HomePage: React.FC = () => {
       fetchRooms() // Update room list for last message
     })
 
-    const unsubscribeRoomUpdate = wsService.on('room_updated', (room: ChatRoom) => {
+    const unsubscribeRoomUpdate = wsService.on('room_updated', (_room: ChatRoom) => {
       fetchRooms()
     })
 

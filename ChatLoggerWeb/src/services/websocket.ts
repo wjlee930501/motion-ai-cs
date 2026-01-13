@@ -1,5 +1,3 @@
-import { ChatMessage, ChatRoom } from '@/types'
-
 class WebSocketService {
   private socket: WebSocket | null = null
   private listeners: Map<string, Set<Function>> = new Map()

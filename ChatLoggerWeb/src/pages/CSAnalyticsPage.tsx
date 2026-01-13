@@ -1,18 +1,15 @@
-import React, { useState, useEffect } from 'react'
-import { 
-  FiTrendingUp, 
-  FiUsers, 
-  FiClock, 
+import React, { useState } from 'react'
+import {
+  FiTrendingUp,
+  FiUsers,
+  FiClock,
   FiMessageCircle,
   FiBarChart2,
-  FiPieChart,
   FiDownload,
   FiCalendar,
-  FiSearch,
-  FiFilter,
   FiStar
 } from 'react-icons/fi'
-import { format, subDays, startOfDay, endOfDay } from 'date-fns'
+import { format, subDays } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import clsx from 'clsx'
 
@@ -47,27 +44,11 @@ interface CSAgentPerformance {
   performanceScore: number // calculated
 }
 
-interface CustomerSatisfactionMetrics {
-  period: string
-  avgSatisfaction: number
-  totalResponses: number
-  distribution: {
-    score: number
-    count: number
-    percentage: number
-  }[]
-  trends: {
-    date: string
-    satisfaction: number
-  }[]
-}
-
 export const CSAnalyticsPage: React.FC = () => {
-  const [dateRange, setDateRange] = useState({
+  const [dateRange] = useState({
     start: subDays(new Date(), 7),
     end: new Date()
   })
-  const [selectedAgent, setSelectedAgent] = useState<string>('all')
   const [selectedMetric, setSelectedMetric] = useState<'overview' | 'agents' | 'satisfaction' | 'quality'>('overview')
 
   // Mock data for demonstration

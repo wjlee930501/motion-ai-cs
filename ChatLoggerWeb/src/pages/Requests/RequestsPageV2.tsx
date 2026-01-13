@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
-import { format, formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import {
   FiAlertCircle,
@@ -11,7 +11,6 @@ import {
   FiRefreshCw,
   FiAlertTriangle,
   FiFlag,
-  FiUsers,
   FiCalendar
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
@@ -298,9 +297,9 @@ const RequestsPageV2: React.FC = () => {
               >
                 <FiAlertTriangle />
                 SLA 초과
-                {stats?.summary.overdue_count > 0 && (
+                {(stats?.summary as any)?.overdue_count > 0 && (
                   <span className="bg-white text-red-600 px-2 py-0.5 rounded-full text-xs font-bold">
-                    {stats.summary.overdue_count}
+                    {(stats?.summary as any)?.overdue_count}
                   </span>
                 )}
               </button>
@@ -488,7 +487,7 @@ const RequestsPageV2: React.FC = () => {
         <RequestDetailV2
           request={selectedRequest}
           onClose={() => setSelectedRequest(null)}
-          onUpdate={(data) => {
+          onUpdate={(data: any) => {
             updateMutation.mutate({ id: selectedRequest.id, data });
           }}
         />

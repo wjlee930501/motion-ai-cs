@@ -149,12 +149,13 @@ const RequestsPage: React.FC = () => {
     });
   };
 
-  const handleAssigneeChange = (request: Request, assignee: string) => {
+  const _handleAssigneeChange = (request: Request, assignee: string) => {
     updateMutation.mutate({
       id: request.id,
       data: { assignee }
     });
   };
+  void _handleAssigneeChange; // Suppress unused warning
 
   return (
     <div className="min-h-screen bg-gray-50">

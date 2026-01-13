@@ -5,7 +5,6 @@ import { chatApi } from '@/services/api'
 import { ChatMessage } from '@/types'
 import { format } from 'date-fns'
 import { FiArrowLeft } from 'react-icons/fi'
-import clsx from 'clsx'
 
 export const SearchPage: React.FC = () => {
   const navigate = useNavigate()

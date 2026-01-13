@@ -1,12 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import {
   FiX,
-  FiUser,
-  FiClock,
-  FiAlertCircle,
-  FiMessageSquare,
   FiRefreshCw
 } from 'react-icons/fi';
 import { useQuery } from 'react-query';
