@@ -1,18 +1,15 @@
 import React, { useEffect, useRef } from 'react'
-import { format, formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import {
   MessageSquare,
   Clock,
   AlertTriangle,
   Tag,
-  ChevronRight,
   Zap,
   User,
-  Building2,
   CheckCircle2,
-  Circle,
-  Send
+  Circle
 } from 'lucide-react'
 import clsx from 'clsx'
 import { Ticket, TicketEvent } from '../../types/ticket.types'
@@ -63,12 +60,29 @@ function formatMessageTime(dateString: string): string {
   try {
     const date = new Date(dateString)
     const now = new Date()
-    const isToday = date.toDateString() === now.toDateString()
+
+    // KST 기준으로 오늘인지 확인
+    const kstOptions = { timeZone: 'Asia/Seoul' }
+    const dateKST = date.toLocaleDateString('ko-KR', kstOptions)
+    const nowKST = now.toLocaleDateString('ko-KR', kstOptions)
+    const isToday = dateKST === nowKST
 
     if (isToday) {
-      return format(date, 'a h:mm', { locale: ko })
+      return date.toLocaleTimeString('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      })
     }
-    return format(date, 'M/d a h:mm', { locale: ko })
+    return date.toLocaleString('ko-KR', {
+      timeZone: 'Asia/Seoul',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    })
   } catch {
     return ''
   }
@@ -106,11 +120,12 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
   }
 
   const status = statusConfig[ticket.status as keyof typeof statusConfig] || statusConfig.new
-  const StatusIcon = status.icon
 
-  // Group messages by date
+  // Group messages by date (KST)
   const groupedMessages = events.reduce((acc, event) => {
-    const date = format(new Date(event.received_at), 'yyyy-MM-dd')
+    const eventDate = new Date(event.received_at)
+    // KST 날짜 키 생성
+    const date = eventDate.toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\. /g, '-').replace('.', '')
     if (!acc[date]) acc[date] = []
     acc[date].push(event)
     return acc
@@ -242,7 +257,12 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
               {/* Date Divider */}
               <div className="flex items-center justify-center my-4">
                 <div className="px-3 py-1 rounded-full bg-slate-200/80 dark:bg-slate-700/80 text-xs text-slate-500 dark:text-slate-400">
-                  {format(new Date(date), 'M월 d일 EEEE', { locale: ko })}
+                  {new Date(date).toLocaleDateString('ko-KR', {
+                    timeZone: 'Asia/Seoul',
+                    month: 'long',
+                    day: 'numeric',
+                    weekday: 'long'
+                  })}
                 </div>
               </div>
 
@@ -346,7 +366,14 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
           </div>
           {ticket.updated_at && (
             <span className="text-slate-400 dark:text-slate-500">
-              {format(new Date(ticket.updated_at), 'M/d HH:mm', { locale: ko })} 업데이트
+              {new Date(ticket.updated_at).toLocaleString('ko-KR', {
+                timeZone: 'Asia/Seoul',
+                month: 'numeric',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+              })} 업데이트
             </span>
           )}
         </div>

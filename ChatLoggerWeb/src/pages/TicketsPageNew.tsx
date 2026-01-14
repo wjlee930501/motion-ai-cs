@@ -10,8 +10,6 @@ import { Ticket, TicketFilters, TicketUpdate } from '@/types/ticket.types'
 import { Button } from '@/components/ui'
 import {
   Header,
-  MetricsPanel,
-  FilterBar,
   TicketList,
   TicketDetail,
   ClinicSidebar
@@ -113,21 +111,21 @@ export function TicketsPageNew() {
     { refetchInterval: 30000 }
   )
 
-  // Fetch metrics
-  const {
-    data: metricsData,
-    isLoading: isLoadingMetrics
-  } = useQuery(
+  // Fetch metrics (for future use)
+  useQuery(
     'metrics',
     () => ticketApi.getMetrics(),
     { refetchInterval: 30000 }
   )
 
-  // Fetch ticket events when selected
+  // Fetch ticket events when selected (with auto-refresh)
   const { data: eventsData, isLoading: isLoadingEvents } = useQuery(
     ['ticketEvents', selectedTicket?.ticket_id],
     () => selectedTicket ? ticketApi.getTicketEvents(selectedTicket.ticket_id) : null,
-    { enabled: !!selectedTicket }
+    {
+      enabled: !!selectedTicket,
+      refetchInterval: 5000, // Refresh every 5 seconds for real-time updates
+    }
   )
 
   // Update ticket mutation
@@ -168,13 +166,6 @@ export function TicketsPageNew() {
     navigate('/login')
   }, [logout, navigate])
 
-  const handleFilterChange = useCallback((newFilters: TicketFilters) => {
-    setFilters(newFilters)
-  }, [])
-
-  const handleFilterReset = useCallback(() => {
-    setFilters(DEFAULT_FILTERS)
-  }, [])
 
   const handleTicketSelect = useCallback((ticket: Ticket) => {
     setSelectedTicket(ticket)
@@ -207,10 +198,10 @@ export function TicketsPageNew() {
         onLogout={handleLogout}
       />
 
-      {/* Main Layout */}
+      {/* Main Layout - Kakao Business Style */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Clinics */}
-        <div className="w-72 flex-shrink-0 hidden lg:block">
+        {/* Left Sidebar - Clinics (Compact) */}
+        <div className="w-56 flex-shrink-0 hidden lg:block">
           <ClinicSidebar
             clinics={clinics}
             selectedClinic={selectedClinic}
@@ -219,47 +210,25 @@ export function TicketsPageNew() {
           />
         </div>
 
-        {/* Center - Ticket List */}
-        <div className="flex-1 flex flex-col min-w-0 border-x border-slate-200 dark:border-slate-800">
-          {/* Metrics Bar */}
-          <div className="flex-shrink-0 p-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-            <MetricsPanel
-              metrics={metricsData?.metrics}
-              isLoading={isLoadingMetrics}
-            />
-          </div>
-
-          {/* Filter Bar */}
-          <div className="flex-shrink-0 p-4 bg-slate-50 dark:bg-slate-900/50">
-            <FilterBar
-              filters={filters}
-              onFilterChange={handleFilterChange}
-              onReset={handleFilterReset}
-            />
-          </div>
-
-          {/* Refresh Info & Status */}
-          <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-              <div className="flex items-center gap-1.5">
-                {isOnline ? (
-                  <Wifi className="w-3.5 h-3.5 text-emerald-500" />
-                ) : (
-                  <WifiOff className="w-3.5 h-3.5 text-red-500" />
-                )}
-                <span>{isOnline ? '실시간 연결됨' : '오프라인'}</span>
-              </div>
-              <span>•</span>
-              <span>마지막 업데이트: {formatLastRefresh()}</span>
+        {/* Center - Ticket List (Narrow - Kakao Style) */}
+        <div className="w-80 flex-shrink-0 flex flex-col min-w-0 border-x border-slate-200 dark:border-slate-800">
+          {/* Compact Header with Status & Refresh */}
+          <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              {isOnline ? (
+                <Wifi className="w-3 h-3 text-emerald-500" />
+              ) : (
+                <WifiOff className="w-3 h-3 text-red-500" />
+              )}
+              <span className="text-2xs">{formatLastRefresh()}</span>
             </div>
             <Button
               variant="ghost"
               size="sm"
               onClick={handleManualRefresh}
-              className="text-slate-500 hover:text-slate-700 h-7 px-2"
+              className="text-slate-500 hover:text-slate-700 h-6 px-1.5"
             >
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoadingTickets ? 'animate-spin' : ''}`} />
-              <span className="text-xs">새로고침</span>
+              <RefreshCw className={`w-3 h-3 ${isLoadingTickets ? 'animate-spin' : ''}`} />
             </Button>
           </div>
 
@@ -300,8 +269,8 @@ export function TicketsPageNew() {
           </div>
         </div>
 
-        {/* Right Panel - Ticket Detail */}
-        <div className="w-[420px] flex-shrink-0 hidden xl:block p-4 bg-slate-50 dark:bg-slate-900/50">
+        {/* Right Panel - Ticket Detail (Main Area - Wide) */}
+        <div className="flex-1 hidden md:block p-4 bg-slate-50 dark:bg-slate-900/50">
           <TicketDetail
             ticket={selectedTicket}
             events={eventsData?.events || []}
@@ -314,7 +283,7 @@ export function TicketsPageNew() {
 
       {/* Mobile Ticket Detail Modal (for smaller screens) */}
       {selectedTicket && (
-        <div className="xl:hidden fixed inset-0 z-50 bg-black/50 flex items-end">
+        <div className="md:hidden fixed inset-0 z-50 bg-black/50 flex items-end">
           <div className="w-full h-[80vh] bg-white dark:bg-slate-800 rounded-t-3xl animate-slide-in-up">
             <div className="h-full p-4">
               <div className="flex justify-between items-center mb-4">

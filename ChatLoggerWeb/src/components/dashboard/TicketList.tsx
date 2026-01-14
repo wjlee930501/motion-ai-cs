@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
-import { format, formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { Clock, AlertTriangle, Inbox, MessageSquare, ChevronRight } from 'lucide-react'
+import { Clock, AlertTriangle, Inbox, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 import { Ticket } from '@/types/ticket.types'
 
