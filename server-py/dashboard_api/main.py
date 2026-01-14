@@ -26,7 +26,8 @@ from sqlalchemy import func, and_, or_
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.database import get_db, engine, Base
-from shared.models import User, Ticket, MessageEvent, TicketEventLink
+from shared.models import User, Ticket, MessageEvent, TicketEventLink, LLMAnnotation
+from sqlalchemy import text
 from shared.schemas import (
     LoginRequest, LoginResponse, UserInfo,
     UserCreate, UserResponse, UserListResponse,
@@ -45,10 +46,47 @@ from .auth import (
 settings = get_settings()
 
 
+def run_migrations(db: Session):
+    """Run database migrations for new columns"""
+    migrations = [
+        # Add last_message_sender to ticket table
+        ("ticket", "last_message_sender", "ALTER TABLE ticket ADD COLUMN last_message_sender TEXT"),
+        # Add needs_reply to ticket table
+        ("ticket", "needs_reply", "ALTER TABLE ticket ADD COLUMN needs_reply BOOLEAN DEFAULT TRUE"),
+        # Add needs_reply to llm_annotation table
+        ("llm_annotation", "needs_reply", "ALTER TABLE llm_annotation ADD COLUMN needs_reply BOOLEAN"),
+    ]
+
+    for table, column, sql in migrations:
+        try:
+            # Check if column exists
+            check_sql = text(f"""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = '{table}' AND column_name = '{column}'
+            """)
+            result = db.execute(check_sql).fetchone()
+            if not result:
+                db.execute(text(sql))
+                db.commit()
+                print(f"Migration: Added {column} to {table}")
+        except Exception as e:
+            db.rollback()
+            print(f"Migration error for {table}.{column}: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Create tables if not exist
     Base.metadata.create_all(bind=engine)
+
+    # Run migrations for new columns
+    db = next(get_db())
+    try:
+        run_migrations(db)
+    except Exception as e:
+        print(f"Migration error: {e}")
+    finally:
+        db.close()
 
     # Create admin user if not exists
     db = next(get_db())
@@ -257,8 +295,12 @@ async def list_tickets(
             priority=t.priority,
             topic_primary=t.topic_primary,
             summary_latest=t.summary_latest,
+            intent=t.intent,
             first_inbound_at=t.first_inbound_at,
             last_inbound_at=t.last_inbound_at,
+            last_outbound_at=t.last_outbound_at,
+            last_message_sender=t.last_message_sender,
+            needs_reply=t.needs_reply if t.needs_reply is not None else True,
             sla_breached=t.sla_breached,
             sla_remaining_sec=sla_remaining
         ))
@@ -318,10 +360,46 @@ async def update_ticket(
     if update.next_action is not None:
         ticket.next_action = update.next_action
 
+    if update.needs_reply is not None:
+        ticket.needs_reply = update.needs_reply
+        # If needs_reply is set to False, also clear SLA breach status
+        if not update.needs_reply:
+            ticket.sla_breached = False
+
     db.commit()
     db.refresh(ticket)
 
     return TicketResponse(ok=True, ticket=TicketDetail.model_validate(ticket))
+
+
+@app.delete("/v1/tickets/{ticket_id}")
+async def delete_ticket(
+    ticket_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete ticket and related data"""
+    ticket = db.query(Ticket).filter(Ticket.ticket_id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"ok": False, "error": {"code": "NOT_FOUND", "message": "Ticket not found"}}
+        )
+
+    # Delete related ticket_event_links
+    db.query(TicketEventLink).filter(TicketEventLink.ticket_id == ticket_id).delete()
+
+    # Delete related llm_annotations (target_type='ticket' and target_id=ticket_id)
+    db.query(LLMAnnotation).filter(
+        LLMAnnotation.target_type == 'ticket',
+        LLMAnnotation.target_id == ticket_id
+    ).delete()
+
+    # Delete ticket
+    db.delete(ticket)
+    db.commit()
+
+    return {"ok": True, "deleted_ticket_id": str(ticket_id)}
 
 
 @app.get("/v1/tickets/{ticket_id}/events", response_model=TicketEventResponse)

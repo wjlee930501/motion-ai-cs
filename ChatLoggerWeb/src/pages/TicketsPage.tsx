@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import ticketApi from '@/services/ticketApi'
 import { Ticket, TicketFilters, TicketUpdate } from '@/types/ticket.types'
+import { isStaffMember } from '@/utils/senderUtils'
 
 // Status badge colors
 const statusColors: Record<string, string> = {
@@ -332,7 +333,7 @@ export function TicketsPage() {
                       <div
                         key={event.event_id}
                         className={`p-2 rounded text-sm ${
-                          event.sender_type === 'staff'
+                          isStaffMember(event.sender_name)
                             ? 'bg-blue-50 ml-4'
                             : 'bg-gray-100 mr-4'
                         }`}

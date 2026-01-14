@@ -18,7 +18,7 @@ export interface Customer {
 export interface CSRoom extends ChatRoom {
   customerId?: string
   customer?: Customer
-  status: 'waiting' | 'in_progress' | 'on_hold' | 'resolved' | 'escalated'
+  status: 'onboarding' | 'stable' | 'churn_risk' | 'important'
   priority: 'urgent' | 'high' | 'normal' | 'low'
   assignedTo?: string
   category?: string
@@ -28,6 +28,8 @@ export interface CSRoom extends ChatRoom {
   satisfaction?: number
   firstResponseAt?: number
   resolvedAt?: number
+  lastMessageSender?: string // 마지막 메시지 발신자 (고객/멤버 구분용)
+  lastCustomerMessageAt?: number // 고객의 마지막 메시지 시간 (응답 대기 시간 계산용)
 }
 
 export interface CSMessage extends ChatMessage {

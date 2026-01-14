@@ -20,5 +20,5 @@ COPY . .
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Run worker
-CMD ["python", "-m", "worker.main"]
+# Run worker with uvicorn (for Cloud Run health checks)
+CMD ["uvicorn", "worker.main:app", "--host", "0.0.0.0", "--port", "8080"]

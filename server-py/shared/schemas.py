@@ -113,8 +113,12 @@ class TicketItem(BaseModel):
     priority: str
     topic_primary: Optional[str] = None
     summary_latest: Optional[str] = None
+    intent: Optional[str] = None  # 고객 메시지 의도 (질문/요청/자료전송/기타)
     first_inbound_at: Optional[datetime] = None
     last_inbound_at: Optional[datetime] = None
+    last_outbound_at: Optional[datetime] = None
+    last_message_sender: Optional[str] = None  # 마지막 메시지 발송자
+    needs_reply: bool = True  # 답변이 필요한 상태인지 (LLM 판단 기반)
     sla_breached: bool
     sla_remaining_sec: Optional[int] = None
 
@@ -136,11 +140,14 @@ class TicketDetail(BaseModel):
     priority: str
     topic_primary: Optional[str] = None
     summary_latest: Optional[str] = None
+    intent: Optional[str] = None  # 고객 메시지 의도 (질문/요청/자료전송/기타)
     next_action: Optional[str] = None
     first_inbound_at: Optional[datetime] = None
     first_response_sec: Optional[int] = None
     last_inbound_at: Optional[datetime] = None
     last_outbound_at: Optional[datetime] = None
+    last_message_sender: Optional[str] = None  # 마지막 메시지 발송자
+    needs_reply: bool = True  # 답변이 필요한 상태인지 (LLM 판단 기반)
     sla_breached: bool
     created_at: datetime
     updated_at: datetime
@@ -158,6 +165,7 @@ class TicketUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     next_action: Optional[str] = None
+    needs_reply: Optional[bool] = None
 
 
 # ============================================

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { ChatMessage } from '@/types'
 import { format } from 'date-fns'
 import clsx from 'clsx'
+import { isStaffMember, getDisplayName } from '@/utils/senderUtils'
 
 interface ChatMessageListProps {
   messages: ChatMessage[]
@@ -60,55 +61,66 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
                 </span>
               </div>
               
-              {dayMessages.map((message) => (
-                <div
-                  key={message.id}
-                  className={clsx(
-                    'flex mb-3',
-                    message.isFromMe ? 'justify-end' : 'justify-start'
-                  )}
-                >
+              {dayMessages.map((message) => {
+                // "모션랩스_"로 시작하는 sender는 내부 멤버 (staff)
+                const isStaff = isStaffMember(message.sender)
+                const displayName = getDisplayName(message.sender)
+
+                return (
                   <div
+                    key={message.id}
                     className={clsx(
-                      'max-w-[70%] space-y-1',
-                      message.isFromMe ? 'items-end' : 'items-start'
+                      'flex mb-3',
+                      isStaff ? 'justify-end' : 'justify-start'
                     )}
                   >
-                    {!message.isFromMe && (
-                      <div className="text-sm text-gray-600 px-1">
-                        {message.sender}
-                      </div>
-                    )}
-                    
-                    <div className="flex items-end gap-2">
-                      {message.isFromMe && (
-                        <span className="text-xs text-gray-500">
-                          {format(message.timestamp, 'HH:mm')}
-                        </span>
+                    <div
+                      className={clsx(
+                        'max-w-[70%] space-y-1',
+                        isStaff ? 'items-end' : 'items-start'
                       )}
-                      
-                      <div
-                        className={clsx(
-                          'px-3 py-2 rounded-2xl break-words',
-                          message.isFromMe
-                            ? 'bg-kakao-yellow'
-                            : 'bg-white border border-gray-200'
+                    >
+                      {!isStaff && (
+                        <div className="text-sm text-gray-600 px-1">
+                          {displayName}
+                        </div>
+                      )}
+                      {isStaff && (
+                        <div className="text-sm text-blue-600 px-1 text-right">
+                          {displayName}
+                        </div>
+                      )}
+
+                      <div className="flex items-end gap-2">
+                        {isStaff && (
+                          <span className="text-xs text-gray-500">
+                            {format(message.timestamp, 'HH:mm')}
+                          </span>
                         )}
-                      >
-                        <p className="text-sm whitespace-pre-wrap">
-                          {message.body}
-                        </p>
+
+                        <div
+                          className={clsx(
+                            'px-3 py-2 rounded-2xl break-words',
+                            isStaff
+                              ? 'bg-blue-100 border border-blue-200'
+                              : 'bg-white border border-gray-200'
+                          )}
+                        >
+                          <p className="text-sm whitespace-pre-wrap">
+                            {message.body}
+                          </p>
+                        </div>
+
+                        {!isStaff && (
+                          <span className="text-xs text-gray-500">
+                            {format(message.timestamp, 'HH:mm')}
+                          </span>
+                        )}
                       </div>
-                      
-                      {!message.isFromMe && (
-                        <span className="text-xs text-gray-500">
-                          {format(message.timestamp, 'HH:mm')}
-                        </span>
-                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ))
         )}

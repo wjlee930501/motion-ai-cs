@@ -1,9 +1,9 @@
 import { useMemo } from 'react'
-import { formatDistanceToNow } from 'date-fns'
-import { ko } from 'date-fns/locale'
-import { Clock, AlertTriangle, Inbox, ChevronRight } from 'lucide-react'
+import { differenceInMinutes } from 'date-fns'
+import { Clock, AlertTriangle, Inbox, ChevronRight, User } from 'lucide-react'
 import clsx from 'clsx'
 import { Ticket } from '@/types/ticket.types'
+import { isStaffMember, getDisplayName } from '@/utils/senderUtils'
 
 interface TicketListProps {
   tickets: Ticket[]
@@ -14,29 +14,29 @@ interface TicketListProps {
 }
 
 const statusConfig: Record<string, { label: string; color: string; bg: string; dot: string }> = {
-  new: {
-    label: '신규',
+  onboarding: {
+    label: '온보딩',
     color: 'text-blue-700 dark:text-blue-300',
     bg: 'bg-blue-50 dark:bg-blue-900/20',
     dot: 'bg-blue-500',
   },
-  in_progress: {
-    label: '진행중',
-    color: 'text-amber-700 dark:text-amber-300',
-    bg: 'bg-amber-50 dark:bg-amber-900/20',
-    dot: 'bg-amber-500',
-  },
-  waiting: {
-    label: '대기',
-    color: 'text-purple-700 dark:text-purple-300',
-    bg: 'bg-purple-50 dark:bg-purple-900/20',
-    dot: 'bg-purple-500',
-  },
-  done: {
-    label: '완료',
+  stable: {
+    label: '안정기',
     color: 'text-emerald-700 dark:text-emerald-300',
     bg: 'bg-emerald-50 dark:bg-emerald-900/20',
     dot: 'bg-emerald-500',
+  },
+  churn_risk: {
+    label: '이탈우려',
+    color: 'text-orange-700 dark:text-orange-300',
+    bg: 'bg-orange-50 dark:bg-orange-900/20',
+    dot: 'bg-orange-500',
+  },
+  important: {
+    label: '중요',
+    color: 'text-purple-700 dark:text-purple-300',
+    bg: 'bg-purple-50 dark:bg-purple-900/20',
+    dot: 'bg-purple-500',
   },
 }
 
@@ -54,13 +54,38 @@ function formatSlaRemaining(seconds: number | undefined): string {
   return `${minutes}분 남음`
 }
 
-function formatTimeAgo(dateString: string | undefined): string {
-  if (!dateString) return ''
-  try {
-    return formatDistanceToNow(new Date(dateString), { addSuffix: true, locale: ko })
-  } catch {
-    return ''
+// 회신 필요 여부 확인 (LLM 분류 기반)
+// 고객 메시지 중 답변이 필요한 메시지만 회신 필요로 표시
+// 인사, 감사, 단순 확인 등은 회신 필요 없음으로 분류됨
+function checkNeedsReply(ticket: Ticket): boolean {
+  return ticket.needs_reply
+}
+
+// 대기 시간 계산 (고객 메시지 이후)
+function getWaitingTime(ticket: Ticket): { minutes: number; display: string } | null {
+  if (!checkNeedsReply(ticket)) return null
+
+  const customerMessageTime = ticket.last_inbound_at
+  if (!customerMessageTime) return null
+
+  const minutes = differenceInMinutes(Date.now(), new Date(customerMessageTime))
+
+  if (minutes < 1) {
+    return { minutes, display: '방금 전' }
+  } else if (minutes < 60) {
+    return { minutes, display: `${minutes}분 대기` }
+  } else {
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+    return { minutes, display: `${hours}시간 ${remainingMinutes}분 대기` }
   }
+}
+
+function getWaitingTimeColor(minutes: number): string {
+  if (minutes < 5) return 'text-green-600 dark:text-green-400'
+  if (minutes < 15) return 'text-yellow-600 dark:text-yellow-400'
+  if (minutes < 30) return 'text-orange-600 dark:text-orange-400'
+  return 'text-red-600 dark:text-red-400'
 }
 
 function TicketSkeleton() {
@@ -105,7 +130,27 @@ export function TicketList({
   isLoading = false,
   total,
 }: TicketListProps) {
-  const ticketItems = useMemo(() => tickets, [tickets])
+  // 정렬: 회신 필요한 방 먼저, 그 중 오래 대기한 순으로 내림차순
+  const ticketItems = useMemo(() => {
+    return [...tickets].sort((a, b) => {
+      // 1. 회신 필요 여부로 먼저 정렬 (needs_reply=true가 위로)
+      if (a.needs_reply !== b.needs_reply) {
+        return a.needs_reply ? -1 : 1
+      }
+
+      // 2. 회신 필요한 경우: 대기 시간이 긴 순서로 (오래된 것이 위로)
+      if (a.needs_reply && b.needs_reply) {
+        const aTime = a.last_inbound_at ? new Date(a.last_inbound_at).getTime() : 0
+        const bTime = b.last_inbound_at ? new Date(b.last_inbound_at).getTime() : 0
+        return aTime - bTime // 오래된 것이 위로
+      }
+
+      // 3. 회신 불필요인 경우: 최근 업데이트 순
+      const aTime = a.last_outbound_at ? new Date(a.last_outbound_at).getTime() : 0
+      const bTime = b.last_outbound_at ? new Date(b.last_outbound_at).getTime() : 0
+      return bTime - aTime // 최근 것이 위로
+    })
+  }, [tickets])
 
   if (isLoading) {
     return (
@@ -159,10 +204,16 @@ export function TicketList({
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {ticketItems.map((ticket, index) => {
           const isSelected = selectedTicketId === ticket.ticket_id
-          const status = statusConfig[ticket.status] || statusConfig.new
+          const status = statusConfig[ticket.status] || statusConfig.onboarding
           const priority = priorityConfig[ticket.priority] || priorityConfig.normal
-          const hasSLA = ticket.sla_breached || (ticket.sla_remaining_sec !== undefined && ticket.sla_remaining_sec < 0)
-          const isUrgent = ticket.priority === 'urgent'
+          const needsReply = checkNeedsReply(ticket)
+          // SLA는 회신 필요한 경우에만 체크
+          const hasSLA = needsReply && (ticket.sla_breached || (ticket.sla_remaining_sec !== undefined && ticket.sla_remaining_sec < 0))
+          const isUrgent = needsReply && ticket.priority === 'urgent'
+          const waitingTime = getWaitingTime(ticket)
+          const senderName = ticket.last_message_sender
+          const isStaff = senderName ? isStaffMember(senderName) : false
+          const displaySenderName = senderName ? getDisplayName(senderName) : null
 
           return (
             <div
@@ -173,11 +224,13 @@ export function TicketList({
                 'border-l-3',
                 isSelected
                   ? 'bg-brand-50/60 dark:bg-brand-900/20 border-l-brand-500'
-                  : hasSLA
-                    ? 'bg-red-50/40 dark:bg-red-900/10 border-l-red-500 hover:bg-red-50/60 dark:hover:bg-red-900/20'
-                    : isUrgent
-                      ? 'bg-amber-50/40 dark:bg-amber-900/10 border-l-amber-500 hover:bg-amber-50/60 dark:hover:bg-amber-900/20'
-                      : 'border-l-transparent hover:bg-slate-50 dark:hover:bg-slate-700/50',
+                  : !needsReply
+                    ? 'bg-emerald-50/50 dark:bg-emerald-900/20 border-l-emerald-400 hover:bg-emerald-50/70 dark:hover:bg-emerald-900/30'
+                    : hasSLA
+                      ? 'bg-red-50/40 dark:bg-red-900/10 border-l-red-500 hover:bg-red-50/60 dark:hover:bg-red-900/20'
+                      : isUrgent
+                        ? 'bg-amber-50/40 dark:bg-amber-900/10 border-l-amber-500 hover:bg-amber-50/60 dark:hover:bg-amber-900/20'
+                        : 'bg-orange-50/30 dark:bg-orange-900/10 border-l-orange-400 hover:bg-orange-50/50 dark:hover:bg-orange-900/20',
                 index !== ticketItems.length - 1 && 'border-b border-slate-100 dark:border-slate-700/50'
               )}
               style={{
@@ -224,7 +277,7 @@ export function TicketList({
 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
-                  {/* Header */}
+                  {/* Header - 채팅방 이름 (병원명) */}
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2 min-w-0">
                       <h3 className={clsx(
@@ -243,14 +296,43 @@ export function TicketList({
                         {status.label}
                       </span>
                     </div>
-                    <span className="text-2xs text-slate-400 dark:text-slate-500 flex-shrink-0 ml-2">
-                      {formatTimeAgo(ticket.last_inbound_at || ticket.first_inbound_at)}
-                    </span>
+                    {/* 회신 필요 시 대기 시간 표시, 완료 시 회신 불필요 표시 */}
+                    {waitingTime ? (
+                      <span className={clsx(
+                        'text-2xs font-medium flex-shrink-0 ml-2',
+                        getWaitingTimeColor(waitingTime.minutes)
+                      )}>
+                        {waitingTime.display}
+                      </span>
+                    ) : (
+                      <span className="text-2xs text-green-600 dark:text-green-400 flex-shrink-0 ml-2">
+                        회신 불필요
+                      </span>
+                    )}
                   </div>
 
-                  {/* Summary */}
-                  <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2 mb-2 leading-relaxed">
-                    {ticket.summary_latest || ticket.topic_primary || '새로운 문의가 접수되었습니다'}
+                  {/* 발송자 이름 - 채팅방 이름과 다를 때만 표시 */}
+                  {displaySenderName && displaySenderName !== ticket.clinic_key && (
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <User className={clsx(
+                        'w-3 h-3',
+                        isStaff ? 'text-blue-500' : 'text-slate-400'
+                      )} />
+                      <span className={clsx(
+                        'text-xs',
+                        isStaff
+                          ? 'text-blue-600 dark:text-blue-400 font-medium'
+                          : 'text-slate-600 dark:text-slate-400'
+                      )}>
+                        {displaySenderName}
+                        {isStaff && ' (멤버)'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* 메시지 내용 (한 줄) */}
+                  <p className="text-sm text-slate-600 dark:text-slate-300 truncate mb-2">
+                    {ticket.summary_latest || '새로운 문의'}
                   </p>
 
                   {/* Footer */}
@@ -270,8 +352,8 @@ export function TicketList({
                       )}
                     </div>
 
-                    {/* SLA */}
-                    {ticket.sla_remaining_sec !== undefined && ticket.sla_remaining_sec !== null && (
+                    {/* SLA - 회신 필요한 경우에만 표시 */}
+                    {needsReply && ticket.sla_remaining_sec !== undefined && ticket.sla_remaining_sec !== null && (
                       <span className={clsx(
                         'flex items-center gap-1 font-medium',
                         ticket.sla_breached || ticket.sla_remaining_sec < 0

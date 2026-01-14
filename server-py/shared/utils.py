@@ -11,17 +11,33 @@ def classify_sender(sender_name: str) -> Tuple[str, Optional[str]]:
     """
     Classify sender as staff or customer based on naming convention.
 
-    Staff pattern: [모션랩스_이름]
+    Staff patterns:
+    - [모션랩스_이름] (with brackets)
+    - 모션랩스_이름 (without brackets)
+    - Known staff names (e.g., 한기훈)
 
     Returns:
         tuple: (sender_type, staff_member_name)
-        - ('staff', '이우진') for [모션랩스_이우진]
+        - ('staff', '이우진') for [모션랩스_이우진] or 모션랩스_이우진
         - ('customer', None) for regular names
     """
-    pattern = r"^\[모션랩스_(.+)\]$"
-    match = re.match(pattern, sender_name)
+    # Known staff members with non-standard naming
+    KNOWN_STAFF = {'한기훈'}
+    if sender_name in KNOWN_STAFF:
+        return "staff", sender_name
+
+    # Pattern with brackets: [모션랩스_이름]
+    pattern_with_brackets = r"^\[모션랩스_(.+)\]$"
+    match = re.match(pattern_with_brackets, sender_name)
     if match:
         return "staff", match.group(1)
+
+    # Pattern without brackets: 모션랩스_이름
+    pattern_without_brackets = r"^모션랩스_(.+)$"
+    match = re.match(pattern_without_brackets, sender_name)
+    if match:
+        return "staff", match.group(1)
+
     return "customer", None
 
 
@@ -119,16 +135,29 @@ def should_escalate_to_sonnet(text: str, haiku_confidence: Optional[float] = Non
     return False
 
 
-# Skip LLM classification for simple messages
+# Skip LLM classification for simple messages (acknowledgments that don't need reply)
 SKIP_LLM_PATTERNS = [
-    r"^감사합니다\.?$",
-    r"^네\.?$",
-    r"^넵\.?$",
-    r"^알겠습니다\.?$",
-    r"^확인했습니다\.?$",
+    # 감사 표현
+    r"^(아\s*)?네?\s*감사합니다\.?!?$",
+    r"^감사드려요\.?!?$",
+    r"^감사해요\.?!?$",
+    r"^고마워요\.?!?$",
+    r"^고맙습니다\.?!?$",
+    # 확인/동의 표현
+    r"^(아\s*)?(네|넵|넹|네네)\.?!?$",
+    r"^알겠습니다\.?!?$",
+    r"^알겠어요\.?!?$",
+    r"^확인했습니다\.?!?$",
+    r"^확인했어요\.?!?$",
+    r"^확인됐습니다\.?!?$",
+    # 짧은 응답
     r"^ㅇㅇ$",
     r"^ㅋㅋ+$",
     r"^ㅎㅎ+$",
+    r"^ㅇㅋ$",
+    r"^오키$",
+    r"^오케이$",
+    r"^ok$",
 ]
 
 

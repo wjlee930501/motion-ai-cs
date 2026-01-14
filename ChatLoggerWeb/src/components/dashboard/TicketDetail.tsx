@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { Ticket, TicketEvent } from '../../types/ticket.types'
+import { isStaffMember, getDisplayName } from '../../utils/senderUtils'
 
 interface TicketDetailProps {
   ticket: Ticket | null
@@ -23,29 +24,29 @@ interface TicketDetailProps {
 }
 
 const statusConfig = {
-  new: {
-    label: '신규',
+  onboarding: {
+    label: '온보딩',
     color: 'text-blue-700 dark:text-blue-300',
     bg: 'bg-blue-100 dark:bg-blue-900/40',
     icon: Circle
   },
-  in_progress: {
-    label: '진행중',
-    color: 'text-amber-700 dark:text-amber-300',
-    bg: 'bg-amber-100 dark:bg-amber-900/40',
-    icon: Zap
-  },
-  waiting: {
-    label: '대기중',
-    color: 'text-purple-700 dark:text-purple-300',
-    bg: 'bg-purple-100 dark:bg-purple-900/40',
-    icon: Clock
-  },
-  done: {
-    label: '완료',
+  stable: {
+    label: '안정기',
     color: 'text-emerald-700 dark:text-emerald-300',
     bg: 'bg-emerald-100 dark:bg-emerald-900/40',
     icon: CheckCircle2
+  },
+  churn_risk: {
+    label: '이탈우려',
+    color: 'text-orange-700 dark:text-orange-300',
+    bg: 'bg-orange-100 dark:bg-orange-900/40',
+    icon: AlertTriangle
+  },
+  important: {
+    label: '중요',
+    color: 'text-purple-700 dark:text-purple-300',
+    bg: 'bg-purple-100 dark:bg-purple-900/40',
+    icon: Zap
   },
 }
 
@@ -119,7 +120,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
     )
   }
 
-  const status = statusConfig[ticket.status as keyof typeof statusConfig] || statusConfig.new
+  const status = statusConfig[ticket.status as keyof typeof statusConfig] || statusConfig.onboarding
 
   // Group messages by date (KST)
   const groupedMessages = events.reduce((acc, event) => {
@@ -190,10 +191,10 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
                   'disabled:opacity-50 disabled:cursor-not-allowed'
                 )}
               >
-                <option value="new">⚪ 신규</option>
-                <option value="in_progress">⚡ 진행중</option>
-                <option value="waiting">⏳ 대기중</option>
-                <option value="done">✅ 완료</option>
+                <option value="onboarding">🔵 온보딩</option>
+                <option value="stable">🟢 안정기</option>
+                <option value="churn_risk">🟠 이탈우려</option>
+                <option value="important">🟣 중요</option>
               </select>
             </div>
 
@@ -269,7 +270,9 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
               {/* Messages */}
               <div className="space-y-3">
                 {dayMessages.map((event, index) => {
-                  const isStaff = event.sender_type === 'staff'
+                  // "모션랩스_"로 시작하는 sender는 내부 멤버 (staff)
+                  const isStaff = isStaffMember(event.sender_name)
+                  const displayName = getDisplayName(event.sender_name)
                   const showAvatar = index === 0 || dayMessages[index - 1]?.sender_name !== event.sender_name
 
                   return (
@@ -294,7 +297,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
                           {isStaff ? (
                             <User className="w-4 h-4" />
                           ) : (
-                            event.sender_name.charAt(0)
+                            displayName.charAt(0)
                           )}
                         </div>
                       </div>
@@ -312,7 +315,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
                               ? 'text-brand-600 dark:text-brand-400'
                               : 'text-slate-600 dark:text-slate-400'
                           )}>
-                            {event.sender_name}
+                            {displayName}
                             {event.staff_member && ` (${event.staff_member})`}
                           </span>
                         )}

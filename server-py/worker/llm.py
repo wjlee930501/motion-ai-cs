@@ -35,9 +35,16 @@ EVENT_CLASSIFICATION_SYSTEM = """당신은 병원 CS 메시지 분류 전문가�
 - topic: 메시지의 주제 (아래 목록 중 선택)
 - urgency: 긴급도 (critical/high/medium/low)
 - sentiment: 감정 (positive/neutral/negative/angry)
-- intent: 의도 (support_request/complaint/inquiry/feedback/greeting/other)
+- intent: 의도 (아래 4가지 중 선택)
+- needs_reply: 답변이 필요한 메시지인지 (true/false)
 - summary: 핵심 내용 1줄 요약 (20자 이내)
 - confidence: 분류 확신도 (0.0~1.0)
+
+Intent (의도) - 4가지 중 선택:
+- 질문: 무언가를 물어보는 경우 (예: "이거 어떻게 해요?", "가능한가요?")
+- 요청: 무언가를 해달라고 하는 경우 (예: "수정해주세요", "추가 부탁드립니다")
+- 자료전송: 사진, 파일, 자료를 보내는 경우 (예: "사진 보내드립니다", 이미지 전송)
+- 기타: 인사, 감사, 확인 등 위에 해당하지 않는 경우
 
 Topic 목록:
 - 발송/전송 문제
@@ -49,6 +56,10 @@ Topic 목록:
 - 리뷰 관련
 - 기타 문의
 - 인사/감사
+
+needs_reply 판단 기준:
+- true: 질문, 요청, 문의, 불만, 도움 필요 등 답변이 필요한 경우
+- false: 인사, 감사, 확인 ("네", "알겠습니다", "감사합니다" 등), 단순 응답, 자료전송만 한 경우
 
 반드시 유효한 JSON만 출력하세요. 설명 없이 JSON만 출력합니다."""
 
@@ -113,13 +124,14 @@ def classify_event(
     Returns:
         tuple: (classification_result, model_used)
     """
-    # Skip simple messages
+    # Skip simple messages (greetings, acknowledgments - no reply needed)
     if should_skip_llm(text):
         return {
             "topic": "인사/감사",
             "urgency": "low",
             "sentiment": "neutral",
-            "intent": "greeting",
+            "intent": "기타",
+            "needs_reply": False,  # Simple acknowledgments don't need a reply
             "summary": text[:20],
             "confidence": 1.0
         }, "skip"
@@ -155,10 +167,15 @@ def classify_event(
                 "topic": "기타 문의",
                 "urgency": "medium",
                 "sentiment": "neutral",
-                "intent": "inquiry",
+                "intent": "기타",
+                "needs_reply": True,  # Assume needs reply if classification failed
                 "summary": text[:20],
                 "confidence": 0.5
             }
+
+        # Ensure needs_reply is set (default to True if not provided by LLM)
+        if "needs_reply" not in result:
+            result["needs_reply"] = True
 
         # Re-escalate if low confidence and was Haiku
         if model == settings.anthropic_model_default:
@@ -174,7 +191,8 @@ def classify_event(
             "topic": "기타 문의",
             "urgency": "medium",
             "sentiment": "neutral",
-            "intent": "inquiry",
+            "intent": "기타",
+            "needs_reply": True,  # Assume needs reply if error occurred
             "summary": text[:20],
             "confidence": 0.3,
             "error": str(e)

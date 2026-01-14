@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { 
-  FiMessageSquare, 
-  FiSearch, 
+import {
+  FiMessageSquare,
+  FiSearch,
   FiDownload,
   FiRefreshCw,
   FiUser,
@@ -11,6 +11,7 @@ import { format } from 'date-fns'
 import { chatApi } from '@/services/api'
 import wsService from '@/services/websocket'
 import toast from 'react-hot-toast'
+import { isStaffMember, getDisplayName } from '@/utils/senderUtils'
 
 interface Room {
   id: string
@@ -301,42 +302,56 @@ export const SimpleLoggerPage: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {filteredMessages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={`flex ${message.isFromMe ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div className={`max-w-[70%] ${message.isFromMe ? 'items-end' : 'items-start'}`}>
-                          {!message.isFromMe && (
-                            <div className="flex items-center space-x-2 mb-1">
-                              <FiUser className="text-gray-400 text-sm" />
-                              <span className="text-sm font-medium text-gray-700">
-                                {message.sender}
+                    {filteredMessages.map((message) => {
+                      // "모션랩스_"로 시작하는 sender는 내부 멤버 (staff)
+                      const isStaff = isStaffMember(message.sender)
+                      const displayName = getDisplayName(message.sender)
+
+                      return (
+                        <div
+                          key={message.id}
+                          className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div className={`max-w-[70%] ${isStaff ? 'items-end' : 'items-start'}`}>
+                            {!isStaff && (
+                              <div className="flex items-center space-x-2 mb-1">
+                                <FiUser className="text-gray-400 text-sm" />
+                                <span className="text-sm font-medium text-gray-700">
+                                  {displayName}
+                                </span>
+                              </div>
+                            )}
+                            {isStaff && (
+                              <div className="flex items-center justify-end space-x-2 mb-1">
+                                <span className="text-sm font-medium text-blue-600">
+                                  {displayName}
+                                </span>
+                                <FiUser className="text-blue-400 text-sm" />
+                              </div>
+                            )}
+
+                            <div
+                              className={`px-4 py-2 rounded-2xl ${
+                                isStaff
+                                  ? 'bg-blue-100 text-gray-900'
+                                  : 'bg-white border border-gray-200'
+                              }`}
+                            >
+                              <p className="text-sm whitespace-pre-wrap break-words">
+                                {message.body}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center space-x-1 mt-1 px-2">
+                              <FiClock className="text-gray-400 text-xs" />
+                              <span className="text-xs text-gray-500">
+                                {format(message.timestamp, 'yyyy-MM-dd HH:mm:ss')}
                               </span>
                             </div>
-                          )}
-                          
-                          <div
-                            className={`px-4 py-2 rounded-2xl ${
-                              message.isFromMe
-                                ? 'bg-yellow-100 text-gray-900'
-                                : 'bg-white border border-gray-200'
-                            }`}
-                          >
-                            <p className="text-sm whitespace-pre-wrap break-words">
-                              {message.body}
-                            </p>
-                          </div>
-                          
-                          <div className="flex items-center space-x-1 mt-1 px-2">
-                            <FiClock className="text-gray-400 text-xs" />
-                            <span className="text-xs text-gray-500">
-                              {format(message.timestamp, 'yyyy-MM-dd HH:mm:ss')}
-                            </span>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>

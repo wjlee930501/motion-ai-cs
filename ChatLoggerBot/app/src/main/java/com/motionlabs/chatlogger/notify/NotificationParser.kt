@@ -74,18 +74,45 @@ class NotificationParser {
     private fun parseMessagingStyle(extras: Bundle): ParsedNotification? {
         try {
             val conversationTitle = extras.getCharSequence(EXTRA_CONVERSATION_TITLE)?.toString()
+            val subText = extras.getCharSequence(EXTRA_SUB_TEXT)?.toString()
+            val title = extras.getCharSequence(EXTRA_TITLE)?.toString()
             val messages = extras.getParcelableArray(EXTRA_MESSAGES)
-            
+
+            Log.d(TAG, "DEBUG: conversationTitle=$conversationTitle, subText=$subText, title=$title, hasMessages=${!messages.isNullOrEmpty()}")
+
             if (!messages.isNullOrEmpty()) {
                 val lastMessage = messages.last() as? Bundle
                 if (lastMessage != null) {
                     val text = lastMessage.getCharSequence("text")?.toString() ?: ""
-                    val sender = lastMessage.getCharSequence("sender")?.toString() ?: 
+                    val sender = lastMessage.getCharSequence("sender")?.toString() ?:
                                 lastMessage.getParcelable<Person>("sender_person")?.name?.toString() ?: "Unknown"
                     val time = lastMessage.getLong("time", System.currentTimeMillis())
-                    
-                    val roomName = conversationTitle ?: sender
-                    val isGroup = conversationTitle != null && conversationTitle != sender
+
+                    // 그룹 채팅방 감지 순서:
+                    // 1. conversationTitle이 있고 sender와 다르면 그룹
+                    // 2. subText가 있으면 그룹 (subText = 방 이름, title = 발신자)
+                    val roomName: String
+                    val isGroup: Boolean
+
+                    when {
+                        conversationTitle != null && conversationTitle != sender -> {
+                            // conversationTitle이 있는 그룹 채팅
+                            roomName = conversationTitle
+                            isGroup = true
+                        }
+                        !subText.isNullOrEmpty() -> {
+                            // subText가 있으면 단톡방 (subText = 방 이름)
+                            roomName = subText
+                            isGroup = true
+                        }
+                        else -> {
+                            // 1:1 대화
+                            roomName = sender
+                            isGroup = false
+                        }
+                    }
+
+                    Log.d(TAG, "DEBUG: Final roomName=$roomName, sender=$sender, isGroup=$isGroup")
 
                     return ParsedNotification(
                         roomName = roomName,

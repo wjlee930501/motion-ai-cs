@@ -19,14 +19,14 @@ interface FilterBarProps {
   onReset: () => void
 }
 
-type StatusTab = 'all' | 'new' | 'in_progress' | 'waiting' | 'done'
+type StatusTab = 'all' | 'onboarding' | 'stable' | 'churn_risk' | 'important'
 
 const statusTabs: { key: StatusTab; label: string; icon: React.ElementType; color?: string }[] = [
   { key: 'all', label: '전체', icon: Inbox },
-  { key: 'new', label: '신규', icon: Clock, color: 'text-blue-600' },
-  { key: 'in_progress', label: '진행중', icon: Zap, color: 'text-amber-600' },
-  { key: 'waiting', label: '대기', icon: AlertTriangle, color: 'text-purple-600' },
-  { key: 'done', label: '완료', icon: CheckCircle2, color: 'text-emerald-600' },
+  { key: 'onboarding', label: '온보딩', icon: Clock, color: 'text-blue-600' },
+  { key: 'stable', label: '안정기', icon: CheckCircle2, color: 'text-emerald-600' },
+  { key: 'churn_risk', label: '이탈우려', icon: AlertTriangle, color: 'text-orange-600' },
+  { key: 'important', label: '중요', icon: Zap, color: 'text-purple-600' },
 ]
 
 export function FilterBar({ filters, onFilterChange, onReset }: FilterBarProps) {

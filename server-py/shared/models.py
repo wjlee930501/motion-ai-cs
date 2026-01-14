@@ -98,7 +98,7 @@ class Ticket(Base):
 
     ticket_id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     clinic_key = Column(Text, nullable=False)
-    status = Column(Text, nullable=False, default="new")  # new, in_progress, waiting, done
+    status = Column(Text, nullable=False, default="onboarding")  # onboarding, stable, churn_risk, important
     priority = Column(Text, nullable=False, default="normal")  # low, normal, high, urgent
     topic_primary = Column(Text, nullable=True)
     summary_latest = Column(Text, nullable=True)
@@ -107,6 +107,9 @@ class Ticket(Base):
     first_response_sec = Column(Integer, nullable=True)
     last_inbound_at = Column(DateTime(timezone=True), nullable=True)
     last_outbound_at = Column(DateTime(timezone=True), nullable=True)
+    last_message_sender = Column(Text, nullable=True)  # 마지막 메시지 발송자 이름
+    intent = Column(Text, nullable=True)  # 고객 메시지 의도 (질문/요청/자료전송/기타)
+    needs_reply = Column(Boolean, nullable=False, default=True)  # 답변이 필요한 상태인지 (LLM 판단 기반)
     sla_breached = Column(Boolean, nullable=False, default=False)
     sla_alerted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
@@ -117,7 +120,7 @@ class Ticket(Base):
     alerts = relationship("SLAAlertLog", back_populates="ticket", cascade="all, delete-orphan")
 
     __table_args__ = (
-        CheckConstraint("status IN ('new', 'in_progress', 'waiting', 'done')", name="ck_ticket_status"),
+        CheckConstraint("status IN ('onboarding', 'stable', 'churn_risk', 'important')", name="ck_ticket_status"),
         CheckConstraint("priority IN ('low', 'normal', 'high', 'urgent')", name="ck_ticket_priority"),
         Index("ix_ticket_clinic_status", "clinic_key", "status"),
         Index("ix_ticket_status", "status"),
@@ -151,6 +154,7 @@ class LLMAnnotation(Base):
     urgency = Column(Text, nullable=True)
     sentiment = Column(Text, nullable=True)
     intent = Column(Text, nullable=True)
+    needs_reply = Column(Boolean, nullable=True)  # 답변이 필요한 메시지인지
     summary = Column(Text, nullable=True)
     confidence = Column(Numeric, nullable=True)
     raw_response = Column(JSON, nullable=True)

@@ -11,8 +11,7 @@ import { Button } from '@/components/ui'
 import {
   Header,
   TicketList,
-  TicketDetail,
-  ClinicSidebar
+  TicketDetail
 } from '@/components/dashboard'
 
 const DEFAULT_FILTERS: TicketFilters = {
@@ -20,35 +19,8 @@ const DEFAULT_FILTERS: TicketFilters = {
   limit: 20,
 }
 
-// Extract unique clinics from tickets
-interface ClinicInfo {
-  clinic_key: string
-  open_tickets: number
-  sla_breached: number
-  urgent_count: number
-}
-
-function extractClinics(tickets: Ticket[]): ClinicInfo[] {
-  const clinicMap = new Map<string, ClinicInfo>()
-
-  tickets.forEach(ticket => {
-    const existing = clinicMap.get(ticket.clinic_key)
-    if (existing) {
-      existing.open_tickets++
-      if (ticket.sla_breached) existing.sla_breached++
-      if (ticket.priority === 'urgent') existing.urgent_count++
-    } else {
-      clinicMap.set(ticket.clinic_key, {
-        clinic_key: ticket.clinic_key,
-        open_tickets: 1,
-        sla_breached: ticket.sla_breached ? 1 : 0,
-        urgent_count: ticket.priority === 'urgent' ? 1 : 0
-      })
-    }
-  })
-
-  return Array.from(clinicMap.values())
-}
+// Reply filter type
+type ReplyFilter = 'all' | 'needs_reply' | 'replied'
 
 export function TicketsPageNew() {
   const navigate = useNavigate()
@@ -57,7 +29,7 @@ export function TicketsPageNew() {
 
   const [filters, setFilters] = useState<TicketFilters>(DEFAULT_FILTERS)
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
-  const [selectedClinic, setSelectedClinic] = useState<string | undefined>()
+  const [replyFilter, setReplyFilter] = useState<ReplyFilter>('all')
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
   const [isOnline, setIsOnline] = useState(navigator.onLine)
 
@@ -84,11 +56,10 @@ export function TicketsPageNew() {
     }
   }, [isAuthenticated, navigate])
 
-  // Combine filters with selected clinic
+  // Combine filters
   const effectiveFilters = useMemo(() => ({
-    ...filters,
-    clinic_key: selectedClinic
-  }), [filters, selectedClinic])
+    ...filters
+  }), [filters])
 
   // Fetch tickets with auto-refresh
   const {
@@ -104,19 +75,36 @@ export function TicketsPageNew() {
     }
   )
 
-  // Fetch all tickets for clinic sidebar (unfiltered, open tickets only)
-  const { data: allTicketsData } = useQuery(
-    ['tickets', 'sidebar'],
-    () => ticketApi.getTickets({ status: 'new,in_progress,waiting', limit: 500 }),
-    { refetchInterval: 30000 }
-  )
-
   // Fetch metrics (for future use)
   useQuery(
     'metrics',
     () => ticketApi.getMetrics(),
     { refetchInterval: 30000 }
   )
+
+  // 회신 필요 여부 판별: LLM 분류 기반 needs_reply 필드 사용
+  // 고객 메시지 중 답변이 필요한 메시지(질문, 요청, 문의 등)만 회신 필요로 표시
+  // 인사, 감사, 단순 확인 등은 회신 필요 없음으로 분류됨
+  const needsReply = useCallback((ticket: Ticket): boolean => {
+    return ticket.needs_reply
+  }, [])
+
+  // 회신 필터 적용된 티켓 목록
+  const filteredTickets = useMemo(() => {
+    const tickets = ticketsData?.tickets || []
+    if (replyFilter === 'all') return tickets
+    if (replyFilter === 'needs_reply') return tickets.filter(needsReply)
+    return tickets.filter(t => !needsReply(t))
+  }, [ticketsData?.tickets, replyFilter, needsReply])
+
+  // 회신 필요/완료 개수
+  const needsReplyCount = useMemo(() => {
+    return (ticketsData?.tickets || []).filter(needsReply).length
+  }, [ticketsData?.tickets, needsReply])
+
+  const repliedCount = useMemo(() => {
+    return (ticketsData?.tickets || []).filter(t => !needsReply(t)).length
+  }, [ticketsData?.tickets, needsReply])
 
   // Fetch ticket events when selected (with auto-refresh)
   const { data: eventsData, isLoading: isLoadingEvents } = useQuery(
@@ -139,12 +127,6 @@ export function TicketsPageNew() {
       },
     }
   )
-
-  // Extract clinics from all tickets
-  const clinics = useMemo(() => {
-    if (!allTicketsData?.tickets) return []
-    return extractClinics(allTicketsData.tickets)
-  }, [allTicketsData])
 
   // Handlers
   const handleStatusChange = useCallback((ticketId: string, newStatus: string) => {
@@ -171,9 +153,8 @@ export function TicketsPageNew() {
     setSelectedTicket(ticket)
   }, [])
 
-  const handleClinicSelect = useCallback((clinicKey: string | undefined) => {
-    setSelectedClinic(clinicKey)
-    setSelectedTicket(null) // Reset ticket selection when clinic changes
+  const handleReplyFilterChange = useCallback((filter: ReplyFilter) => {
+    setReplyFilter(filter)
   }, [])
 
   const handleManualRefresh = useCallback(() => {
@@ -198,48 +179,74 @@ export function TicketsPageNew() {
         onLogout={handleLogout}
       />
 
-      {/* Main Layout - Kakao Business Style */}
+      {/* Main Layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Clinics (Compact) */}
-        <div className="w-56 flex-shrink-0 hidden lg:block">
-          <ClinicSidebar
-            clinics={clinics}
-            selectedClinic={selectedClinic}
-            onSelectClinic={handleClinicSelect}
-            isLoading={isLoadingTickets}
-          />
-        </div>
-
-        {/* Center - Ticket List (Narrow - Kakao Style) */}
-        <div className="w-80 flex-shrink-0 flex flex-col min-w-0 border-x border-slate-200 dark:border-slate-800">
-          {/* Compact Header with Status & Refresh */}
-          <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-              {isOnline ? (
-                <Wifi className="w-3 h-3 text-emerald-500" />
-              ) : (
-                <WifiOff className="w-3 h-3 text-red-500" />
-              )}
-              <span className="text-2xs">{formatLastRefresh()}</span>
+        {/* Left - Ticket List with Reply Filter */}
+        <div className="w-96 flex-shrink-0 flex flex-col min-w-0 border-r border-slate-200 dark:border-slate-800">
+          {/* Reply Filter Tabs */}
+          <div className="flex-shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleReplyFilterChange('all')}
+                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    replyFilter === 'all'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  전체 ({ticketsData?.tickets?.length || 0})
+                </button>
+                <button
+                  onClick={() => handleReplyFilterChange('needs_reply')}
+                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    replyFilter === 'needs_reply'
+                      ? 'bg-red-500 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  } ${needsReplyCount > 0 && replyFilter !== 'needs_reply' ? 'animate-pulse' : ''}`}
+                >
+                  회신 필요 ({needsReplyCount})
+                </button>
+                <button
+                  onClick={() => handleReplyFilterChange('replied')}
+                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    replyFilter === 'replied'
+                      ? 'bg-green-500 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  회신 불필요 ({repliedCount})
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                  {isOnline ? (
+                    <Wifi className="w-3 h-3 text-emerald-500" />
+                  ) : (
+                    <WifiOff className="w-3 h-3 text-red-500" />
+                  )}
+                  <span>{formatLastRefresh()}</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleManualRefresh}
+                  className="text-slate-500 hover:text-slate-700 h-7 px-2"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingTickets ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleManualRefresh}
-              className="text-slate-500 hover:text-slate-700 h-6 px-1.5"
-            >
-              <RefreshCw className={`w-3 h-3 ${isLoadingTickets ? 'animate-spin' : ''}`} />
-            </Button>
           </div>
 
           {/* Ticket List */}
           <div className="flex-1 overflow-hidden p-4">
             <TicketList
-              tickets={ticketsData?.tickets || []}
+              tickets={filteredTickets}
               selectedTicketId={selectedTicket?.ticket_id}
               onSelect={handleTicketSelect}
               isLoading={isLoadingTickets}
-              total={ticketsData?.total || 0}
+              total={filteredTickets.length}
             />
 
             {/* Pagination */}

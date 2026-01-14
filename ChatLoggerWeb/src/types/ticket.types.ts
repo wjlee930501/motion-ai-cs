@@ -20,15 +20,18 @@ export interface LoginResponse {
 export interface Ticket {
   ticket_id: string
   clinic_key: string
-  status: 'new' | 'in_progress' | 'waiting' | 'done'
+  status: 'onboarding' | 'stable' | 'churn_risk' | 'important'
   priority: 'low' | 'normal' | 'high' | 'urgent'
   topic_primary?: string
   summary_latest?: string
+  intent?: string // 고객 메시지 의도 (질문/요청/자료전송/기타)
   next_action?: string
   first_inbound_at?: string
   first_response_sec?: number
   last_inbound_at?: string
   last_outbound_at?: string
+  last_message_sender?: string // 마지막 메시지 발송자 이름
+  needs_reply: boolean // 답변이 필요한 상태인지 (LLM 판단 기반)
   sla_breached: boolean
   sla_remaining_sec?: number
   created_at?: string
