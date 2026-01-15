@@ -299,17 +299,69 @@ gcloud run deploy cs-web \
 
 ---
 
-## 5. 도메인 설정 (선택)
+## 5. 커스텀 도메인 설정
+
+### 고정 URL 구성
+
+| 서비스 | 도메인 |
+|--------|--------|
+| 프론트엔드 | `https://cs.motionlabs.kr` |
+| Dashboard API | `https://api-cs.motionlabs.kr` |
+
+### 자동 설정 스크립트
 
 ```bash
-# Cloud Run 도메인 매핑
+# 도메인 설정 스크립트 실행
+./gcp/setup-domain.sh
+```
+
+### 수동 설정
+
+#### Step 1: 도메인 소유권 확인
+
+Google Search Console에서 `motionlabs.kr` 소유권 확인:
+- https://search.google.com/search-console
+- TXT 레코드를 DNS에 추가하여 확인
+
+#### Step 2: Cloud Run 도메인 매핑
+
+```bash
+# 프론트엔드 도메인 매핑
 gcloud beta run domain-mappings create \
-  --service cs-web \
-  --domain cs.motionlabs.io \
+  --service cs-frontend \
+  --domain cs.motionlabs.kr \
+  --region asia-northeast3
+
+# API 도메인 매핑
+gcloud beta run domain-mappings create \
+  --service cs-dashboard-api \
+  --domain api-cs.motionlabs.kr \
   --region asia-northeast3
 ```
 
-DNS 설정: CNAME → ghs.googlehosted.com
+#### Step 3: AWS Route 53 DNS 설정
+
+motionlabs.kr 호스팅 영역에서 다음 레코드 추가:
+
+| Name | Type | Value | TTL |
+|------|------|-------|-----|
+| cs | CNAME | ghs.googlehosted.com | 300 |
+| api-cs | CNAME | ghs.googlehosted.com | 300 |
+
+#### Step 4: SSL 인증서
+
+Google이 자동으로 SSL 인증서를 발급합니다.
+DNS 전파 후 5-10분 내 HTTPS 활성화됩니다.
+
+### 도메인 상태 확인
+
+```bash
+# 도메인 매핑 상태 확인
+gcloud beta run domain-mappings list --region asia-northeast3
+
+# 특정 도메인 상세 정보
+gcloud beta run domain-mappings describe --domain cs.motionlabs.kr --region asia-northeast3
+```
 
 ---
 

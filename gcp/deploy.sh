@@ -12,6 +12,10 @@ REGION="${GCP_REGION:-asia-northeast3}"
 CLOUD_SQL_INSTANCE="cs-intelligence-db"
 TAG="${1:-latest}"
 
+# Custom Domain (fixed URL)
+FRONTEND_DOMAIN="cs.motionlabs.kr"
+API_DOMAIN="api-cs.motionlabs.kr"
+
 echo "=========================================="
 echo "CS Intelligence System - Manual Deploy"
 echo "=========================================="
@@ -132,7 +136,14 @@ echo "  Dashboard API: ${DASHBOARD_URL}"
 echo "  Ingest API:    ${INGEST_URL}"
 echo "  Frontend:      ${FRONTEND_URL}"
 echo ""
-echo "Note: If this is the first deployment, rebuild and redeploy the frontend"
-echo "with the correct API URL using:"
-echo "  GCP_PROJECT_ID=${PROJECT_ID} GCP_REGION=${REGION} ./gcp/deploy.sh"
+
+# ============================================
+# Custom Domain Mapping (Optional)
+# ============================================
+echo "Custom Domain Setup:"
+echo "  Frontend: https://${FRONTEND_DOMAIN}"
+echo "  API:      https://${API_DOMAIN}"
+echo ""
+echo "To set up custom domain mapping, run:"
+echo "  ./gcp/setup-domain.sh"
 echo ""

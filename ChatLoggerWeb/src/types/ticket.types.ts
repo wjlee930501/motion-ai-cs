@@ -4,6 +4,31 @@ export interface User {
   id: number
   email: string
   name: string
+  role: 'admin' | 'member'
+}
+
+export interface UserCreate {
+  email: string
+  password: string
+  name: string
+  role?: 'admin' | 'member'
+}
+
+export interface UserUpdate {
+  email?: string
+  password?: string
+  name?: string
+  role?: 'admin' | 'member'
+}
+
+export interface UserListResponse {
+  ok: boolean
+  users: User[]
+}
+
+export interface UserResponse {
+  ok: boolean
+  user: User
 }
 
 export interface LoginRequest {
@@ -54,6 +79,7 @@ export interface TicketUpdate {
   status?: string
   priority?: string
   next_action?: string
+  needs_reply?: boolean
 }
 
 export interface TicketEvent {

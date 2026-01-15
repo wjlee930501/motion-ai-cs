@@ -8,6 +8,9 @@ interface AuthState {
   isLoading: boolean
   error: string | null
 
+  // Computed
+  isAdmin: boolean
+
   // Actions
   login: (email: string, password: string) => Promise<boolean>
   logout: () => void
@@ -19,6 +22,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   isLoading: false,
   error: null,
+  isAdmin: false,
 
   login: async (email: string, password: string) => {
     set({ isLoading: true, error: null })
@@ -28,6 +32,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({
           user: response.user,
           isAuthenticated: true,
+          isAdmin: response.user.role === 'admin',
           isLoading: false,
         })
         return true
@@ -53,6 +58,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({
       user: null,
       isAuthenticated: false,
+      isAdmin: false,
       error: null,
     })
   },
@@ -63,6 +69,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({
       isAuthenticated,
       user,
+      isAdmin: user?.role === 'admin',
     })
   },
 }))

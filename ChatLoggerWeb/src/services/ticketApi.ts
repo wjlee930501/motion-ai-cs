@@ -3,6 +3,10 @@ import {
   LoginRequest,
   LoginResponse,
   User,
+  UserCreate,
+  UserUpdate,
+  UserListResponse,
+  UserResponse,
   TicketListResponse,
   TicketDetailResponse,
   TicketUpdate,
@@ -88,22 +92,32 @@ class TicketApiService {
   }
 
   // ============================================
-  // Users
+  // Users (Admin Only for create/update/delete)
   // ============================================
 
-  async getUsers(): Promise<{ ok: boolean; users: User[] }> {
-    const { data } = await this.api.get('/v1/users')
+  async getUsers(): Promise<UserListResponse> {
+    const { data } = await this.api.get<UserListResponse>('/v1/users')
     return data
   }
 
-  async createUser(user: { email: string; password: string; name: string }): Promise<{ ok: boolean; user: User }> {
-    const { data } = await this.api.post('/v1/users', user)
+  async createUser(user: UserCreate): Promise<UserResponse> {
+    const { data } = await this.api.post<UserResponse>('/v1/users', user)
     return data
   }
 
-  async deleteUser(userId: number): Promise<{ ok: boolean }> {
+  async updateUser(userId: number, update: UserUpdate): Promise<UserResponse> {
+    const { data } = await this.api.put<UserResponse>(`/v1/users/${userId}`, update)
+    return data
+  }
+
+  async deleteUser(userId: number): Promise<{ ok: boolean; message: string }> {
     const { data } = await this.api.delete(`/v1/users/${userId}`)
     return data
+  }
+
+  isAdmin(): boolean {
+    const user = this.getCurrentUser()
+    return user?.role === 'admin'
   }
 
   // ============================================

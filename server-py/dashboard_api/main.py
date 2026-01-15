@@ -26,21 +26,22 @@ from sqlalchemy import func, and_, or_
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.database import get_db, engine, Base
-from shared.models import User, Ticket, MessageEvent, TicketEventLink, LLMAnnotation, CSUnderstanding, LearningExecution
+from shared.models import User, Ticket, MessageEvent, TicketEventLink, LLMAnnotation, CSUnderstanding, LearningExecution, Notification
 from sqlalchemy import text
 from shared.schemas import (
     LoginRequest, LoginResponse, UserInfo,
-    UserCreate, UserResponse, UserListResponse,
+    UserCreate, UserUpdate, UserResponse, UserListResponse, UserDeleteResponse,
     TicketItem, TicketListResponse, TicketDetail, TicketResponse, TicketUpdate,
     TicketEventItem, TicketEventResponse,
     MetricsData, MetricsResponse,
     ClinicHealth, ClinicHealthResponse,
+    NotificationItem, NotificationListResponse, NotificationReadResponse, NotificationReadAllResponse,
 )
 from shared.utils import get_kst_now, calculate_sla_remaining_sec
 from shared.config import get_settings
 
 from .auth import (
-    authenticate_user, create_access_token, get_current_user, get_password_hash
+    authenticate_user, create_access_token, get_current_user, get_admin_user, get_password_hash
 )
 
 settings = get_settings()
@@ -55,6 +56,10 @@ def run_migrations(db: Session):
         ("ticket", "needs_reply", "ALTER TABLE ticket ADD COLUMN needs_reply BOOLEAN DEFAULT TRUE"),
         # Add needs_reply to llm_annotation table
         ("llm_annotation", "needs_reply", "ALTER TABLE llm_annotation ADD COLUMN needs_reply BOOLEAN"),
+        # Add role to users table
+        ("users", "role", "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'member'"),
+        # Add intent to ticket table
+        ("ticket", "intent", "ALTER TABLE ticket ADD COLUMN intent TEXT"),
     ]
 
     for table, column, sql in migrations:
@@ -88,7 +93,7 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
-    # Create admin user if not exists
+    # Create admin user if not exists, or update existing to admin role
     db = next(get_db())
     try:
         admin = db.query(User).filter(User.email == "admin").first()
@@ -96,9 +101,14 @@ async def lifespan(app: FastAPI):
             admin = User(
                 email="admin",
                 password_hash=get_password_hash("1234"),
-                name="관리자"
+                name="관리자",
+                role="admin"
             )
             db.add(admin)
+            db.commit()
+        elif admin.role != "admin":
+            # Ensure existing admin account has admin role
+            admin.role = "admin"
             db.commit()
     finally:
         db.close()
@@ -148,12 +158,12 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     return LoginResponse(
         ok=True,
         token=token,
-        user=UserInfo(id=user.id, email=user.email, name=user.name)
+        user=UserInfo(id=user.id, email=user.email, name=user.name, role=user.role)
     )
 
 
 # ============================================
-# User Endpoints
+# User Endpoints (Admin Only)
 # ============================================
 
 @app.get("/v1/users", response_model=UserListResponse)
@@ -161,11 +171,11 @@ async def list_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """List all users"""
-    users = db.query(User).all()
+    """List all users (any authenticated user can view)"""
+    users = db.query(User).order_by(User.id).all()
     return UserListResponse(
         ok=True,
-        users=[UserInfo(id=u.id, email=u.email, name=u.name) for u in users]
+        users=[UserInfo(id=u.id, email=u.email, name=u.name, role=u.role) for u in users]
     )
 
 
@@ -173,7 +183,7 @@ async def list_users(
 async def create_user(
     request: UserCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    admin_user: User = Depends(get_admin_user)  # Admin only
 ):
     """Create new user (admin only)"""
     # Check if email exists
@@ -184,10 +194,18 @@ async def create_user(
             detail={"ok": False, "error": {"code": "DUPLICATE", "message": "Email already exists"}}
         )
 
+    # Validate role
+    if request.role not in ["admin", "member"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"ok": False, "error": {"code": "VALIDATION_ERROR", "message": "Invalid role. Must be 'admin' or 'member'"}}
+        )
+
     user = User(
         email=request.email,
         password_hash=get_password_hash(request.password),
-        name=request.name
+        name=request.name,
+        role=request.role
     )
     db.add(user)
     db.commit()
@@ -195,17 +213,73 @@ async def create_user(
 
     return UserResponse(
         ok=True,
-        user=UserInfo(id=user.id, email=user.email, name=user.name)
+        user=UserInfo(id=user.id, email=user.email, name=user.name, role=user.role)
     )
 
 
-@app.delete("/v1/users/{user_id}")
+@app.put("/v1/users/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: int,
+    request: UserUpdate,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_admin_user)  # Admin only
+):
+    """Update user (admin only)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"ok": False, "error": {"code": "NOT_FOUND", "message": "User not found"}}
+        )
+
+    # Prevent changing admin's own role (safety measure)
+    if user.id == admin_user.id and request.role and request.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"ok": False, "error": {"code": "FORBIDDEN", "message": "Cannot change your own admin role"}}
+        )
+
+    # Update fields
+    if request.email is not None:
+        # Check for duplicate email
+        existing = db.query(User).filter(User.email == request.email, User.id != user_id).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"ok": False, "error": {"code": "DUPLICATE", "message": "Email already exists"}}
+            )
+        user.email = request.email
+
+    if request.password is not None:
+        user.password_hash = get_password_hash(request.password)
+
+    if request.name is not None:
+        user.name = request.name
+
+    if request.role is not None:
+        if request.role not in ["admin", "member"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"ok": False, "error": {"code": "VALIDATION_ERROR", "message": "Invalid role. Must be 'admin' or 'member'"}}
+            )
+        user.role = request.role
+
+    db.commit()
+    db.refresh(user)
+
+    return UserResponse(
+        ok=True,
+        user=UserInfo(id=user.id, email=user.email, name=user.name, role=user.role)
+    )
+
+
+@app.delete("/v1/users/{user_id}", response_model=UserDeleteResponse)
 async def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    admin_user: User = Depends(get_admin_user)  # Admin only
 ):
-    """Delete user"""
+    """Delete user (admin only)"""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -214,15 +288,24 @@ async def delete_user(
         )
 
     # Prevent self-deletion
-    if user.id == current_user.id:
+    if user.id == admin_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"ok": False, "error": {"code": "FORBIDDEN", "message": "Cannot delete yourself"}}
         )
 
+    # Prevent deleting the last admin
+    if user.role == "admin":
+        admin_count = db.query(User).filter(User.role == "admin").count()
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"ok": False, "error": {"code": "FORBIDDEN", "message": "Cannot delete the last admin user"}}
+            )
+
     db.delete(user)
     db.commit()
-    return {"ok": True}
+    return UserDeleteResponse(ok=True, message=f"User '{user.email}' deleted successfully")
 
 
 # ============================================
@@ -695,6 +778,89 @@ async def get_learning_history(
             for e in executions
         ]
     }
+
+
+# ============================================
+# Notification Endpoints
+# ============================================
+
+@app.get("/v1/notifications", response_model=NotificationListResponse)
+async def list_notifications(
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get notifications for current user"""
+    # Get notifications for current user OR global notifications (user_id is None)
+    notifications = db.query(Notification).filter(
+        or_(
+            Notification.user_id == current_user.id,
+            Notification.user_id.is_(None)
+        )
+    ).order_by(
+        Notification.created_at.desc()
+    ).limit(limit).all()
+
+    # Count unread
+    unread_count = db.query(func.count(Notification.id)).filter(
+        or_(
+            Notification.user_id == current_user.id,
+            Notification.user_id.is_(None)
+        ),
+        Notification.is_read == False
+    ).scalar() or 0
+
+    return NotificationListResponse(
+        ok=True,
+        notifications=[NotificationItem.model_validate(n) for n in notifications],
+        unread_count=unread_count
+    )
+
+
+@app.post("/v1/notifications/{notification_id}/read", response_model=NotificationReadResponse)
+async def mark_notification_read(
+    notification_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Mark a notification as read"""
+    notification = db.query(Notification).filter(
+        Notification.id == notification_id,
+        or_(
+            Notification.user_id == current_user.id,
+            Notification.user_id.is_(None)
+        )
+    ).first()
+
+    if not notification:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"ok": False, "error": {"code": "NOT_FOUND", "message": "Notification not found"}}
+        )
+
+    notification.is_read = True
+    db.commit()
+
+    return NotificationReadResponse(ok=True, message="Notification marked as read")
+
+
+@app.post("/v1/notifications/read-all", response_model=NotificationReadAllResponse)
+async def mark_all_notifications_read(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Mark all notifications as read for current user"""
+    count = db.query(Notification).filter(
+        or_(
+            Notification.user_id == current_user.id,
+            Notification.user_id.is_(None)
+        ),
+        Notification.is_read == False
+    ).update({"is_read": True})
+
+    db.commit()
+
+    return NotificationReadAllResponse(ok=True, message="All notifications marked as read", count=count)
 
 
 if __name__ == "__main__":

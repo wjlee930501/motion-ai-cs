@@ -71,6 +71,7 @@ class UserInfo(BaseModel):
     id: int
     email: str
     name: str
+    role: str = "member"  # admin, member
 
     class Config:
         from_attributes = True
@@ -90,6 +91,14 @@ class UserCreate(BaseModel):
     email: str
     password: str
     name: str
+    role: str = "member"  # admin, member
+
+
+class UserUpdate(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
+    name: Optional[str] = None
+    role: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -100,6 +109,11 @@ class UserResponse(BaseModel):
 class UserListResponse(BaseModel):
     ok: bool = True
     users: list[UserInfo]
+
+
+class UserDeleteResponse(BaseModel):
+    ok: bool = True
+    message: str = "User deleted successfully"
 
 
 # ============================================
@@ -236,3 +250,37 @@ class LLMTicketSummaryResult(BaseModel):
     summary: str
     next_action: str
     overall_urgency: str
+
+
+# ============================================
+# Dashboard API - Notifications
+# ============================================
+
+class NotificationItem(BaseModel):
+    id: int
+    type: str  # sla_breach, urgent_ticket, system, info
+    title: str
+    message: str
+    link: Optional[str] = None
+    is_read: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationListResponse(BaseModel):
+    ok: bool = True
+    notifications: list[NotificationItem]
+    unread_count: int
+
+
+class NotificationReadResponse(BaseModel):
+    ok: bool = True
+    message: str = "Notification marked as read"
+
+
+class NotificationReadAllResponse(BaseModel):
+    ok: bool = True
+    message: str = "All notifications marked as read"
+    count: int

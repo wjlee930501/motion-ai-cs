@@ -99,7 +99,7 @@ async function triggerLearning(): Promise<{ ok: boolean; status: string; message
 
 export function LabPage() {
   const navigate = useNavigate()
-  const { user, logout, checkAuth, isAuthenticated } = useAuthStore()
+  const { user, logout, checkAuth, isAuthenticated, isAdmin } = useAuthStore()
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [showHistory, setShowHistory] = useState(false)
 
@@ -223,18 +223,20 @@ export function LabPage() {
               >
                 <RefreshCw className={clsx('w-4 h-4', (isLoadingUnderstanding || isLoadingHistory) && 'animate-spin')} />
               </Button>
-              <Button
-                onClick={handleTriggerLearning}
-                disabled={triggerMutation.isLoading}
-                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
-              >
-                {triggerMutation.isLoading ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                수동 학습 실행
-              </Button>
+              {isAdmin && (
+                <Button
+                  onClick={handleTriggerLearning}
+                  disabled={triggerMutation.isLoading}
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
+                >
+                  {triggerMutation.isLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  수동 학습 실행
+                </Button>
+              )}
             </div>
           </div>
 

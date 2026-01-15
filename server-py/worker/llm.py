@@ -1,5 +1,7 @@
 """
 LLM Classification using Claude API
+
+학습 결과(CSUnderstanding)를 분류에 반영하여 needs_reply 판단 정확도 개선
 """
 
 import os
@@ -12,8 +14,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.config import get_settings
 from shared.utils import should_escalate_to_sonnet, should_skip_llm
+from shared.database import get_db
+from shared.models import CSUnderstanding
 
 settings = get_settings()
+
+# CSUnderstanding 캐시 (메모리)
+_cs_understanding_cache = {
+    "version": 0,
+    "text": None,
+    "loaded_at": None
+}
 
 # Lazy import anthropic
 _client = None
@@ -25,6 +36,67 @@ def get_anthropic_client():
         import anthropic
         _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     return _client
+
+
+def get_cs_understanding_context() -> Optional[str]:
+    """
+    최신 CSUnderstanding을 로드하여 분류 컨텍스트로 활용
+    5분 캐시 적용
+    """
+    import time
+    global _cs_understanding_cache
+
+    current_time = time.time()
+    cache_ttl = 300  # 5분
+
+    # 캐시가 유효하면 반환
+    if (_cs_understanding_cache["text"] is not None and
+        _cs_understanding_cache["loaded_at"] is not None and
+        current_time - _cs_understanding_cache["loaded_at"] < cache_ttl):
+        return _cs_understanding_cache["text"]
+
+    # DB에서 최신 이해 로드
+    try:
+        db = next(get_db())
+        understanding = db.query(CSUnderstanding).order_by(
+            CSUnderstanding.version.desc()
+        ).first()
+        db.close()
+
+        if understanding:
+            _cs_understanding_cache["version"] = understanding.version
+            _cs_understanding_cache["text"] = understanding.understanding_text
+            _cs_understanding_cache["loaded_at"] = current_time
+            return understanding.understanding_text
+    except Exception as e:
+        print(f"[LLM] Failed to load CSUnderstanding: {e}")
+
+    return None
+
+
+def build_classification_prompt(base_prompt: str) -> str:
+    """
+    기본 프롬프트에 CSUnderstanding 컨텍스트를 추가
+    """
+    cs_context = get_cs_understanding_context()
+
+    if not cs_context:
+        return base_prompt
+
+    # CSUnderstanding에서 핵심 패턴 추출하여 추가
+    context_addition = f"""
+
+---
+[학습된 CS 패턴 - 분류 시 참고]
+{cs_context[:2000]}
+---
+
+위 학습된 패턴을 참고하여 메시지를 분류하세요. 특히 needs_reply 판단 시:
+- 학습된 패턴에서 "답변 불필요" 또는 "단순 응답"으로 분류된 유형은 needs_reply=false
+- 학습된 패턴에서 "문의", "요청", "불만"으로 분류된 유형은 needs_reply=true
+"""
+
+    return base_prompt + context_addition
 
 
 # System prompts
@@ -150,11 +222,14 @@ def classify_event(
 
 위 메시지를 분석하여 JSON으로 반환하세요."""
 
+    # 학습된 CS 패턴을 프롬프트에 반영
+    system_prompt = build_classification_prompt(EVENT_CLASSIFICATION_SYSTEM)
+
     try:
         response = client.messages.create(
             model=model,
             max_tokens=500,
-            system=EVENT_CLASSIFICATION_SYSTEM,
+            system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}]
         )
 

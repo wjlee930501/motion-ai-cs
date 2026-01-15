@@ -54,8 +54,13 @@ class User(Base):
     email = Column(Text, nullable=False, unique=True)
     password_hash = Column(Text, nullable=False)
     name = Column(Text, nullable=False)
+    role = Column(Text, nullable=False, default="member")  # admin, member
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
 
 
 class MessageEvent(Base):
@@ -237,4 +242,24 @@ class LearningExecution(Base):
     __table_args__ = (
         CheckConstraint("status IN ('success', 'failed', 'partial')", name="ck_learning_status"),
         Index("ix_learning_execution_at", "executed_at"),
+    )
+
+
+class Notification(Base):
+    """사용자 알림"""
+    __tablename__ = "notification"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)  # null = 전체 사용자
+    type = Column(Text, nullable=False)  # sla_breach, urgent_ticket, system, info
+    title = Column(Text, nullable=False)
+    message = Column(Text, nullable=False)
+    link = Column(Text, nullable=True)  # 클릭 시 이동할 경로 (예: /tickets?id=xxx)
+    is_read = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("type IN ('sla_breach', 'urgent_ticket', 'system', 'info')", name="ck_notification_type"),
+        Index("ix_notification_user_read", "user_id", "is_read"),
+        Index("ix_notification_created", "created_at"),
     )
