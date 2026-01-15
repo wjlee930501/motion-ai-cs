@@ -26,7 +26,7 @@ from sqlalchemy import func, and_, or_
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.database import get_db, engine, Base
-from shared.models import User, Ticket, MessageEvent, TicketEventLink, LLMAnnotation
+from shared.models import User, Ticket, MessageEvent, TicketEventLink, LLMAnnotation, CSUnderstanding, LearningExecution
 from sqlalchemy import text
 from shared.schemas import (
     LoginRequest, LoginResponse, UserInfo,
@@ -342,7 +342,7 @@ async def update_ticket(
 
     # Update fields
     if update.status is not None:
-        if update.status not in ["new", "in_progress", "waiting", "done"]:
+        if update.status not in ["onboarding", "stable", "churn_risk", "important"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"ok": False, "error": {"code": "VALIDATION_ERROR", "message": "Invalid status"}}
@@ -463,16 +463,13 @@ async def get_metrics(
         Ticket.sla_breached == True
     ).scalar() or 0
 
-    # Urgent tickets
+    # Urgent tickets (priority = urgent, all lifecycle stages are "open")
     urgent_count = db.query(func.count(Ticket.ticket_id)).filter(
-        Ticket.priority == "urgent",
-        Ticket.status.in_(["new", "in_progress", "waiting"])
+        Ticket.priority == "urgent"
     ).scalar() or 0
 
-    # Open tickets
-    open_tickets = db.query(func.count(Ticket.ticket_id)).filter(
-        Ticket.status.in_(["new", "in_progress", "waiting"])
-    ).scalar() or 0
+    # Open tickets (all tickets in any lifecycle stage)
+    open_tickets = db.query(func.count(Ticket.ticket_id)).scalar() or 0
 
     # Average response time (for tickets with responses)
     avg_response = db.query(func.avg(Ticket.first_response_sec)).filter(
@@ -500,20 +497,16 @@ async def get_clinics_health(
     now = get_kst_now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Get all unique clinics with open tickets
+    # Get all unique clinics with tickets (all lifecycle stages are "open")
     clinics_query = db.query(
         Ticket.clinic_key,
-        func.count(Ticket.ticket_id).filter(
-            Ticket.status.in_(["new", "in_progress", "waiting"])
-        ).label("open_tickets"),
+        func.count(Ticket.ticket_id).label("open_tickets"),
         func.count(Ticket.ticket_id).filter(
             Ticket.sla_breached == True
         ).label("sla_breached"),
         func.count(Ticket.ticket_id).filter(
             Ticket.priority == "urgent"
         ).label("urgent_count")
-    ).filter(
-        Ticket.status.in_(["new", "in_progress", "waiting"])
     ).group_by(
         Ticket.clinic_key
     ).all()
@@ -539,6 +532,145 @@ async def get_clinics_health(
     clinics.sort(key=lambda x: (x.sla_breached, x.urgent_count), reverse=True)
 
     return ClinicHealthResponse(ok=True, clinics=clinics)
+
+
+# ============================================
+# Learning Endpoints
+# ============================================
+
+@app.get("/v1/learning/understanding")
+async def get_latest_understanding(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get latest CS understanding"""
+    understanding = db.query(CSUnderstanding).order_by(
+        CSUnderstanding.version.desc()
+    ).first()
+
+    if not understanding:
+        return {
+            "ok": True,
+            "understanding": None,
+            "message": "No understanding formed yet"
+        }
+
+    # Get previous versions list
+    previous_versions = db.query(
+        CSUnderstanding.version,
+        CSUnderstanding.created_at
+    ).order_by(
+        CSUnderstanding.version.desc()
+    ).limit(10).all()
+
+    return {
+        "ok": True,
+        "understanding": {
+            "version": understanding.version,
+            "created_at": understanding.created_at.isoformat() if understanding.created_at else None,
+            "logs_analyzed_count": understanding.logs_analyzed_count,
+            "logs_date_from": understanding.logs_date_from.isoformat() if understanding.logs_date_from else None,
+            "logs_date_to": understanding.logs_date_to.isoformat() if understanding.logs_date_to else None,
+            "understanding_text": understanding.understanding_text,
+            "key_insights": understanding.key_insights,
+            "model_used": understanding.model_used,
+            "prompt_tokens": understanding.prompt_tokens,
+            "completion_tokens": understanding.completion_tokens,
+        },
+        "previous_versions": [
+            {"version": v.version, "created_at": v.created_at.isoformat() if v.created_at else None}
+            for v in previous_versions
+        ]
+    }
+
+
+@app.get("/v1/learning/understanding/{version}")
+async def get_understanding_by_version(
+    version: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get specific version of CS understanding"""
+    understanding = db.query(CSUnderstanding).filter(
+        CSUnderstanding.version == version
+    ).first()
+
+    if not understanding:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"ok": False, "error": {"code": "NOT_FOUND", "message": f"Understanding v{version} not found"}}
+        )
+
+    return {
+        "ok": True,
+        "understanding": {
+            "version": understanding.version,
+            "created_at": understanding.created_at.isoformat() if understanding.created_at else None,
+            "logs_analyzed_count": understanding.logs_analyzed_count,
+            "logs_date_from": understanding.logs_date_from.isoformat() if understanding.logs_date_from else None,
+            "logs_date_to": understanding.logs_date_to.isoformat() if understanding.logs_date_to else None,
+            "understanding_text": understanding.understanding_text,
+            "key_insights": understanding.key_insights,
+            "model_used": understanding.model_used,
+            "prompt_tokens": understanding.prompt_tokens,
+            "completion_tokens": understanding.completion_tokens,
+        }
+    }
+
+
+@app.post("/v1/learning/run")
+async def trigger_learning_cycle(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Trigger manual learning cycle"""
+    import threading
+    from worker.learning import run_learning_cycle_manual
+
+    def run_in_background():
+        try:
+            run_learning_cycle_manual()
+        except Exception as e:
+            print(f"[Learning] Background run failed: {e}")
+
+    # Start in background thread
+    thread = threading.Thread(target=run_in_background)
+    thread.daemon = True
+    thread.start()
+
+    return {
+        "ok": True,
+        "status": "started",
+        "message": "Learning cycle started in background"
+    }
+
+
+@app.get("/v1/learning/history")
+async def get_learning_history(
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get learning execution history"""
+    executions = db.query(LearningExecution).order_by(
+        LearningExecution.executed_at.desc()
+    ).limit(limit).all()
+
+    return {
+        "ok": True,
+        "executions": [
+            {
+                "id": str(e.id),
+                "executed_at": e.executed_at.isoformat() if e.executed_at else None,
+                "status": e.status,
+                "trigger_type": e.trigger_type,
+                "duration_seconds": e.duration_seconds,
+                "understanding_version": e.understanding_version,
+                "error_message": e.error_message,
+            }
+            for e in executions
+        ]
+    }
 
 
 if __name__ == "__main__":

@@ -29,6 +29,9 @@ google-cloud-pubsub==2.19.0
 python-dotenv==1.0.0
 pytz==2024.1
 
+# Scheduler
+APScheduler==3.10.4
+
 # Development
 pytest==7.4.4
 pytest-asyncio==0.23.3

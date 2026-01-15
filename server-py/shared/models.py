@@ -191,3 +191,50 @@ class SLAAlertLog(Base):
     __table_args__ = (
         Index("ix_sla_alert_ticket", "ticket_id"),
     )
+
+
+class CSUnderstanding(Base):
+    """LLM이 형성한 CS 이해를 버전별로 저장"""
+    __tablename__ = "cs_understanding"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    version = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    # 분석 메타데이터
+    logs_analyzed_count = Column(Integer, nullable=True)
+    logs_date_from = Column(DateTime(timezone=True), nullable=True)
+    logs_date_to = Column(DateTime(timezone=True), nullable=True)
+
+    # LLM 이해 내용
+    understanding_text = Column(Text, nullable=False)
+    key_insights = Column(JSON, nullable=True)  # 선택적 구조화
+
+    # LLM 메타
+    model_used = Column(Text, nullable=True)
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_cs_understanding_version", "version"),
+        Index("ix_cs_understanding_created", "created_at"),
+    )
+
+
+class LearningExecution(Base):
+    """학습 사이클 실행 기록"""
+    __tablename__ = "learning_execution"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    executed_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    status = Column(Text, nullable=False)  # success, failed, partial
+    trigger_type = Column(Text, nullable=True)  # scheduled, manual
+    duration_seconds = Column(Integer, nullable=True)
+    understanding_version = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('success', 'failed', 'partial')", name="ck_learning_status"),
+        Index("ix_learning_execution_at", "executed_at"),
+    )

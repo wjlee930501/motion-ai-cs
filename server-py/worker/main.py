@@ -35,6 +35,7 @@ from shared.utils import get_kst_now
 
 from .llm import classify_event, summarize_ticket, get_priority_from_urgency, should_upgrade_priority
 from .slack import send_sla_alert, send_urgent_ticket_alert
+from .learning import setup_learning_scheduler, shutdown_learning_scheduler
 
 # Configure logging
 logging.basicConfig(
@@ -570,10 +571,21 @@ async def lifespan(app: FastAPI):
     worker_started = True
     logger.info("Worker thread started")
 
+    # Start learning scheduler (Mon/Thu 02:00 KST)
+    try:
+        setup_learning_scheduler()
+        logger.info("Learning scheduler started")
+    except Exception as e:
+        logger.error(f"Failed to start learning scheduler: {e}")
+
     yield
 
     # Shutdown
     logger.info("Worker shutting down...")
+    try:
+        shutdown_learning_scheduler()
+    except Exception as e:
+        logger.error(f"Failed to shutdown learning scheduler: {e}")
 
 
 # FastAPI app for Cloud Run health checks
