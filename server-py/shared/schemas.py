@@ -284,3 +284,51 @@ class NotificationReadAllResponse(BaseModel):
     ok: bool = True
     message: str = "All notifications marked as read"
     count: int
+
+
+# ============================================
+# Dashboard API - Message Templates
+# ============================================
+
+class TemplateItem(BaseModel):
+    id: int
+    title: str
+    content: str
+    category: str  # 인사, 안내, 문제해결, 마무리, 기타
+    usage_count: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TemplateListResponse(BaseModel):
+    ok: bool = True
+    templates: list[TemplateItem]
+
+
+class TemplateResponse(BaseModel):
+    ok: bool = True
+    template: TemplateItem
+
+
+class TemplateCreate(BaseModel):
+    title: str
+    content: str
+    category: str = "기타"  # 인사, 안내, 문제해결, 마무리, 기타
+
+
+class TemplateUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+
+
+class TemplateDeleteResponse(BaseModel):
+    ok: bool = True
+    message: str = "Template deleted successfully"
+
+
+class TemplateCopyResponse(BaseModel):
+    ok: bool = True
+    message: str = "Usage count updated"

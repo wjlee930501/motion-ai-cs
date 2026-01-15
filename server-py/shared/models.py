@@ -245,6 +245,26 @@ class LearningExecution(Base):
     )
 
 
+class MessageTemplate(Base):
+    """CS 응답 템플릿"""
+    __tablename__ = "message_template"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(Text, nullable=False)  # 템플릿 제목 (검색용)
+    content = Column(Text, nullable=False)  # 템플릿 내용
+    category = Column(Text, nullable=False, default="기타")  # 인사, 안내, 문제해결, 마무리, 기타
+    usage_count = Column(Integer, nullable=False, default=0)  # 사용 횟수 (인기순 정렬용)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("category IN ('인사', '안내', '문제해결', '마무리', '기타')", name="ck_template_category"),
+        Index("ix_template_category", "category"),
+        Index("ix_template_usage", "usage_count"),
+    )
+
+
 class Notification(Base):
     """사용자 알림"""
     __tablename__ = "notification"

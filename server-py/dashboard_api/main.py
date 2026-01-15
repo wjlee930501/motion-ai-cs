@@ -26,7 +26,7 @@ from sqlalchemy import func, and_, or_
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.database import get_db, engine, Base
-from shared.models import User, Ticket, MessageEvent, TicketEventLink, LLMAnnotation, CSUnderstanding, LearningExecution, Notification
+from shared.models import User, Ticket, MessageEvent, TicketEventLink, LLMAnnotation, CSUnderstanding, LearningExecution, Notification, MessageTemplate
 from sqlalchemy import text
 from shared.schemas import (
     LoginRequest, LoginResponse, UserInfo,
@@ -36,6 +36,7 @@ from shared.schemas import (
     MetricsData, MetricsResponse,
     ClinicHealth, ClinicHealthResponse,
     NotificationItem, NotificationListResponse, NotificationReadResponse, NotificationReadAllResponse,
+    TemplateItem, TemplateListResponse, TemplateResponse, TemplateCreate, TemplateUpdate, TemplateDeleteResponse, TemplateCopyResponse,
 )
 from shared.utils import get_kst_now, calculate_sla_remaining_sec
 from shared.config import get_settings
@@ -861,6 +862,185 @@ async def mark_all_notifications_read(
     db.commit()
 
     return NotificationReadAllResponse(ok=True, message="All notifications marked as read", count=count)
+
+
+# ============================================
+# Template Endpoints
+# ============================================
+
+@app.get("/v1/templates", response_model=TemplateListResponse)
+async def list_templates(
+    category: Optional[str] = Query(None, description="Filter by category"),
+    search: Optional[str] = Query(None, description="Search in title and content"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all templates with optional filtering"""
+    query = db.query(MessageTemplate)
+
+    if category:
+        query = query.filter(MessageTemplate.category == category)
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            or_(
+                MessageTemplate.title.ilike(search_pattern),
+                MessageTemplate.content.ilike(search_pattern)
+            )
+        )
+
+    # Order by usage count (most used first), then by updated_at
+    templates = query.order_by(
+        MessageTemplate.usage_count.desc(),
+        MessageTemplate.updated_at.desc()
+    ).all()
+
+    return TemplateListResponse(
+        ok=True,
+        templates=[TemplateItem.model_validate(t) for t in templates]
+    )
+
+
+@app.get("/v1/templates/categories")
+async def list_template_categories(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get list of template categories with counts"""
+    categories = db.query(
+        MessageTemplate.category,
+        func.count(MessageTemplate.id).label("count")
+    ).group_by(MessageTemplate.category).all()
+
+    return {
+        "ok": True,
+        "categories": [
+            {"name": c.category, "count": c.count}
+            for c in categories
+        ]
+    }
+
+
+@app.get("/v1/templates/{template_id}", response_model=TemplateResponse)
+async def get_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get single template"""
+    template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"ok": False, "error": {"code": "NOT_FOUND", "message": "Template not found"}}
+        )
+
+    return TemplateResponse(ok=True, template=TemplateItem.model_validate(template))
+
+
+@app.post("/v1/templates", response_model=TemplateResponse)
+async def create_template(
+    request: TemplateCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create new template"""
+    # Validate category
+    valid_categories = ["인사", "안내", "문제해결", "마무리", "기타"]
+    if request.category not in valid_categories:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"ok": False, "error": {"code": "VALIDATION_ERROR", "message": f"Invalid category. Must be one of: {', '.join(valid_categories)}"}}
+        )
+
+    template = MessageTemplate(
+        title=request.title,
+        content=request.content,
+        category=request.category,
+        created_by=current_user.id
+    )
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+
+    return TemplateResponse(ok=True, template=TemplateItem.model_validate(template))
+
+
+@app.put("/v1/templates/{template_id}", response_model=TemplateResponse)
+async def update_template(
+    template_id: int,
+    request: TemplateUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update template"""
+    template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"ok": False, "error": {"code": "NOT_FOUND", "message": "Template not found"}}
+        )
+
+    if request.title is not None:
+        template.title = request.title
+
+    if request.content is not None:
+        template.content = request.content
+
+    if request.category is not None:
+        valid_categories = ["인사", "안내", "문제해결", "마무리", "기타"]
+        if request.category not in valid_categories:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"ok": False, "error": {"code": "VALIDATION_ERROR", "message": f"Invalid category. Must be one of: {', '.join(valid_categories)}"}}
+            )
+        template.category = request.category
+
+    db.commit()
+    db.refresh(template)
+
+    return TemplateResponse(ok=True, template=TemplateItem.model_validate(template))
+
+
+@app.delete("/v1/templates/{template_id}", response_model=TemplateDeleteResponse)
+async def delete_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete template"""
+    template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"ok": False, "error": {"code": "NOT_FOUND", "message": "Template not found"}}
+        )
+
+    db.delete(template)
+    db.commit()
+
+    return TemplateDeleteResponse(ok=True, message=f"Template '{template.title}' deleted successfully")
+
+
+@app.post("/v1/templates/{template_id}/copy", response_model=TemplateCopyResponse)
+async def copy_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Record template copy action (increment usage count)"""
+    template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"ok": False, "error": {"code": "NOT_FOUND", "message": "Template not found"}}
+        )
+
+    template.usage_count = (template.usage_count or 0) + 1
+    db.commit()
+
+    return TemplateCopyResponse(ok=True, message="Usage count updated")
 
 
 if __name__ == "__main__":

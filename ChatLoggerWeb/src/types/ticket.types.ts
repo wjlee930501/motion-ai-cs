@@ -139,3 +139,47 @@ export interface ApiError {
     message: string
   }
 }
+
+// Message Templates
+export type TemplateCategory = '인사' | '안내' | '문제해결' | '마무리' | '기타'
+
+export interface Template {
+  id: number
+  title: string
+  content: string
+  category: TemplateCategory
+  usage_count: number
+  created_at: string
+}
+
+export interface TemplateCreate {
+  title: string
+  content: string
+  category: TemplateCategory
+}
+
+export interface TemplateUpdate {
+  title?: string
+  content?: string
+  category?: TemplateCategory
+}
+
+export interface TemplateListResponse {
+  ok: boolean
+  templates: Template[]
+}
+
+export interface TemplateResponse {
+  ok: boolean
+  template: Template
+}
+
+export interface TemplateCategoryCount {
+  name: TemplateCategory
+  count: number
+}
+
+export interface TemplateCategoriesResponse {
+  ok: boolean
+  categories: TemplateCategoryCount[]
+}

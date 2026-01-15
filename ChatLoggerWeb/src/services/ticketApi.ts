@@ -14,6 +14,11 @@ import {
   MetricsResponse,
   ClinicsHealthResponse,
   TicketFilters,
+  TemplateCreate,
+  TemplateUpdate,
+  TemplateListResponse,
+  TemplateResponse,
+  TemplateCategoriesResponse,
 } from '@/types/ticket.types'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -163,6 +168,43 @@ class TicketApiService {
 
   async getClinicsHealth(): Promise<ClinicsHealthResponse> {
     const { data } = await this.api.get<ClinicsHealthResponse>('/v1/clinics/health')
+    return data
+  }
+
+  // ============================================
+  // Templates
+  // ============================================
+
+  async getTemplates(category?: string, search?: string): Promise<TemplateListResponse> {
+    const params = new URLSearchParams()
+    if (category) params.append('category', category)
+    if (search) params.append('search', search)
+    const { data } = await this.api.get<TemplateListResponse>(`/v1/templates?${params.toString()}`)
+    return data
+  }
+
+  async getTemplateCategories(): Promise<TemplateCategoriesResponse> {
+    const { data } = await this.api.get<TemplateCategoriesResponse>('/v1/templates/categories')
+    return data
+  }
+
+  async createTemplate(template: TemplateCreate): Promise<TemplateResponse> {
+    const { data } = await this.api.post<TemplateResponse>('/v1/templates', template)
+    return data
+  }
+
+  async updateTemplate(templateId: number, update: TemplateUpdate): Promise<TemplateResponse> {
+    const { data } = await this.api.put<TemplateResponse>(`/v1/templates/${templateId}`, update)
+    return data
+  }
+
+  async deleteTemplate(templateId: number): Promise<{ ok: boolean; message: string }> {
+    const { data } = await this.api.delete(`/v1/templates/${templateId}`)
+    return data
+  }
+
+  async copyTemplate(templateId: number): Promise<{ ok: boolean; message: string }> {
+    const { data } = await this.api.post(`/v1/templates/${templateId}/copy`)
     return data
   }
 

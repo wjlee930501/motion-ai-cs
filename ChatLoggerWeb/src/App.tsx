@@ -12,6 +12,7 @@ import { LoginPage } from './pages/LoginPage'
 import { TicketsPageNew } from './pages/TicketsPageNew'
 import { LabPage } from './pages/LabPage'
 import { UsersPage } from './pages/UsersPage'
+import TemplatesPage from './pages/TemplatesPage'
 import RequestsPage from './pages/Requests/RequestsPage'
 import wsService from './services/websocket'
 
@@ -50,6 +51,7 @@ function App() {
             <Route path="/tickets" element={<TicketsPageNew />} />
             <Route path="/lab" element={<LabPage />} />
             <Route path="/users" element={<UsersPage />} />
+            <Route path="/templates" element={<TemplatesPage />} />
 
             {/* Legacy routes */}
             <Route path="/requests" element={<RequestsPage />} />
