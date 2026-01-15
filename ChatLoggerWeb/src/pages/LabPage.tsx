@@ -61,7 +61,7 @@ interface HistoryResponse {
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 async function fetchUnderstanding(): Promise<UnderstandingResponse> {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('cs_token')
   const res = await fetch(`${API_BASE}/v1/learning/understanding`, {
     headers: { Authorization: `Bearer ${token}` }
   })
@@ -70,7 +70,7 @@ async function fetchUnderstanding(): Promise<UnderstandingResponse> {
 }
 
 async function fetchUnderstandingByVersion(version: number): Promise<{ ok: boolean; understanding: Understanding }> {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('cs_token')
   const res = await fetch(`${API_BASE}/v1/learning/understanding/${version}`, {
     headers: { Authorization: `Bearer ${token}` }
   })
@@ -79,7 +79,7 @@ async function fetchUnderstandingByVersion(version: number): Promise<{ ok: boole
 }
 
 async function fetchHistory(): Promise<HistoryResponse> {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('cs_token')
   const res = await fetch(`${API_BASE}/v1/learning/history`, {
     headers: { Authorization: `Bearer ${token}` }
   })
@@ -88,7 +88,7 @@ async function fetchHistory(): Promise<HistoryResponse> {
 }
 
 async function triggerLearning(): Promise<{ ok: boolean; status: string; message: string }> {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('cs_token')
   const res = await fetch(`${API_BASE}/v1/learning/run`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` }

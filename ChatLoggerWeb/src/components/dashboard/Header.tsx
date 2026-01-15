@@ -1,24 +1,78 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Bell, Settings, LogOut, Moon, Sun, Menu, X, Sparkles, ChevronDown, Search, Brain } from 'lucide-react'
 import { Button } from '../ui'
 import clsx from 'clsx'
+
+interface SearchableItem {
+  id: string
+  name: string
+  lastMessage?: string
+  needsReply?: boolean
+}
 
 interface HeaderProps {
   userName?: string
   onLogout: () => void
   onToggleTheme?: () => void
   isDarkMode?: boolean
+  searchItems?: SearchableItem[]
+  onSearchSelect?: (id: string) => void
 }
 
-export function Header({ userName, onLogout, onToggleTheme, isDarkMode }: HeaderProps) {
+export function Header({ userName, onLogout, onToggleTheme, isDarkMode, searchItems = [], onSearchSelect }: HeaderProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const isLabPage = location.pathname === '/lab'
+
+  // 검색 결과 필터링
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return []
+    const query = searchQuery.toLowerCase()
+    return searchItems
+      .filter(item =>
+        item.name.toLowerCase().includes(query) ||
+        (item.lastMessage && item.lastMessage.toLowerCase().includes(query))
+      )
+      .slice(0, 8) // 최대 8개 결과
+  }, [searchQuery, searchItems])
+
+  // 검색 모달 열릴 때 포커스
+  useEffect(() => {
+    if (showSearch && searchInputRef.current) {
+      searchInputRef.current.focus()
+    }
+  }, [showSearch])
+
+  // 키보드 단축키 (⌘K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setShowSearch(prev => !prev)
+        setShowNotifications(false)
+        setShowUserMenu(false)
+      }
+      if (e.key === 'Escape') {
+        setShowSearch(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  const handleSearchSelect = (id: string) => {
+    onSearchSelect?.(id)
+    setShowSearch(false)
+    setSearchQuery('')
+  }
 
   const notifications = [
     {
@@ -63,10 +117,10 @@ export function Header({ userName, onLogout, onToggleTheme, isDarkMode }: Header
             </div>
             <div className="hidden sm:block">
               <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-                CS Intelligence
+                MotionLabs AI-CS
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400 -mt-0.5">
-                MotionLabs Dashboard
+                System
               </p>
             </div>
           </div>
@@ -74,14 +128,113 @@ export function Header({ userName, onLogout, onToggleTheme, isDarkMode }: Header
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-2">
             {/* Search */}
-            <div className="relative mr-2">
-              <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer">
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setShowSearch(!showSearch)
+                  setShowNotifications(false)
+                  setShowUserMenu(false)
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              >
                 <Search className="w-4 h-4" />
-                <span className="text-sm">검색...</span>
-                <kbd className="hidden lg:inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-700 rounded-md text-xs text-slate-400 border border-slate-200 dark:border-slate-600">
+                <span className="text-sm">병원 검색</span>
+                <kbd className="hidden lg:inline-flex items-center px-1.5 py-0.5 bg-white dark:bg-slate-700 rounded text-2xs text-slate-400 border border-slate-200 dark:border-slate-600">
                   ⌘K
                 </kbd>
-              </div>
+              </button>
+
+              {/* Search Modal */}
+              {showSearch && (
+                <>
+                  {/* Backdrop */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowSearch(false)}
+                  />
+                  {/* Modal */}
+                  <div className="absolute left-0 mt-2 w-80 bg-white dark:bg-slate-800 rounded-xl shadow-elevated border border-slate-200 dark:border-slate-700 overflow-hidden z-50 animate-fade-in-down">
+                    {/* Search Input */}
+                    <div className="p-3 border-b border-slate-100 dark:border-slate-700">
+                      <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                        <Search className="w-4 h-4 text-slate-400" />
+                        <input
+                          ref={searchInputRef}
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="병원명 또는 메시지 검색..."
+                          className="flex-1 bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 outline-none"
+                        />
+                        {searchQuery && (
+                          <button
+                            onClick={() => setSearchQuery('')}
+                            className="text-slate-400 hover:text-slate-600"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Results */}
+                    <div className="max-h-64 overflow-y-auto">
+                      {searchQuery.trim() === '' ? (
+                        <div className="p-4 text-center text-sm text-slate-400">
+                          검색어를 입력하세요
+                        </div>
+                      ) : searchResults.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-slate-400">
+                          "{searchQuery}" 검색 결과 없음
+                        </div>
+                      ) : (
+                        searchResults.map((item) => (
+                          <button
+                            key={item.id}
+                            onClick={() => handleSearchSelect(item.id)}
+                            className="w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors flex items-start gap-3"
+                          >
+                            <div className={clsx(
+                              'w-8 h-8 rounded-lg flex items-center justify-center text-sm font-medium flex-shrink-0',
+                              item.needsReply
+                                ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-600'
+                                : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                            )}>
+                              {item.name.charAt(0)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm text-slate-900 dark:text-white truncate">
+                                  {item.name}
+                                </span>
+                                {item.needsReply && (
+                                  <span className="flex-shrink-0 px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-600 text-2xs rounded">
+                                    대기
+                                  </span>
+                                )}
+                              </div>
+                              {item.lastMessage && (
+                                <p className="text-xs text-slate-500 truncate mt-0.5">
+                                  {item.lastMessage}
+                                </p>
+                              )}
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="px-3 py-2 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+                      <div className="flex items-center justify-between text-2xs text-slate-400">
+                        <span>↑↓ 이동</span>
+                        <span>Enter 선택</span>
+                        <span>ESC 닫기</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Notifications */}

@@ -177,6 +177,16 @@ export function TicketsPageNew() {
       <Header
         userName={user?.name}
         onLogout={handleLogout}
+        searchItems={(ticketsData?.tickets || []).map(t => ({
+          id: t.ticket_id,
+          name: t.clinic_key,
+          lastMessage: t.summary_latest,
+          needsReply: t.needs_reply
+        }))}
+        onSearchSelect={(id) => {
+          const ticket = ticketsData?.tickets?.find(t => t.ticket_id === id)
+          if (ticket) handleTicketSelect(ticket)
+        }}
       />
 
       {/* Main Layout */}
@@ -185,56 +195,57 @@ export function TicketsPageNew() {
         <div className="w-96 flex-shrink-0 flex flex-col min-w-0 border-r border-slate-200 dark:border-slate-800">
           {/* Reply Filter Tabs */}
           <div className="flex-shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center justify-between px-4 py-3">
-              <div className="flex gap-2">
+            <div className="flex flex-col gap-2 px-3 py-2">
+              {/* Filter Buttons */}
+              <div className="flex gap-1.5">
                 <button
                   onClick={() => handleReplyFilterChange('all')}
-                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
                     replyFilter === 'all'
                       ? 'bg-blue-500 text-white'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                   }`}
                 >
-                  전체 ({ticketsData?.tickets?.length || 0})
+                  전체 {ticketsData?.tickets?.length || 0}
                 </button>
                 <button
                   onClick={() => handleReplyFilterChange('needs_reply')}
-                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
                     replyFilter === 'needs_reply'
                       ? 'bg-red-500 text-white'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                   } ${needsReplyCount > 0 && replyFilter !== 'needs_reply' ? 'animate-pulse' : ''}`}
                 >
-                  회신 필요 ({needsReplyCount})
+                  대기 {needsReplyCount}
                 </button>
                 <button
                   onClick={() => handleReplyFilterChange('replied')}
-                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
                     replyFilter === 'replied'
                       ? 'bg-green-500 text-white'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                   }`}
                 >
-                  회신 불필요 ({repliedCount})
+                  완료 {repliedCount}
                 </button>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+              {/* Status Bar */}
+              <div className="flex items-center justify-between text-2xs text-slate-400">
+                <div className="flex items-center gap-1">
                   {isOnline ? (
                     <Wifi className="w-3 h-3 text-emerald-500" />
                   ) : (
                     <WifiOff className="w-3 h-3 text-red-500" />
                   )}
-                  <span>{formatLastRefresh()}</span>
+                  <span>업데이트: {formatLastRefresh()}</span>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
+                <button
                   onClick={handleManualRefresh}
-                  className="text-slate-500 hover:text-slate-700 h-7 px-2"
+                  className="flex items-center gap-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingTickets ? 'animate-spin' : ''}`} />
-                </Button>
+                  <RefreshCw className={`w-3 h-3 ${isLoadingTickets ? 'animate-spin' : ''}`} />
+                  <span>새로고침</span>
+                </button>
               </div>
             </div>
           </div>

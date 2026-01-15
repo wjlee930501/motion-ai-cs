@@ -623,26 +623,50 @@ async def trigger_learning_cycle(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Trigger manual learning cycle"""
-    import threading
-    from worker.learning import run_learning_cycle_manual
+    """Trigger manual learning cycle by calling Worker service"""
+    import httpx
 
-    def run_in_background():
+    # Worker service URL (Cloud Run internal or localhost for dev)
+    worker_url = os.environ.get("WORKER_URL", "http://localhost:8080")
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(f"{worker_url}/learning/run")
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "ok": False,
+                    "status": "error",
+                    "message": f"Worker returned status {response.status_code}"
+                }
+    except httpx.RequestError as e:
+        # Fallback: try to run locally if worker is not accessible
+        print(f"[Learning] Worker not accessible ({e}), trying local execution...")
         try:
-            run_learning_cycle_manual()
-        except Exception as e:
-            print(f"[Learning] Background run failed: {e}")
+            import threading
+            from worker.learning import run_learning_cycle_manual
 
-    # Start in background thread
-    thread = threading.Thread(target=run_in_background)
-    thread.daemon = True
-    thread.start()
+            def run_in_background():
+                try:
+                    run_learning_cycle_manual()
+                except Exception as ex:
+                    print(f"[Learning] Local run failed: {ex}")
 
-    return {
-        "ok": True,
-        "status": "started",
-        "message": "Learning cycle started in background"
-    }
+            thread = threading.Thread(target=run_in_background, daemon=True)
+            thread.start()
+
+            return {
+                "ok": True,
+                "status": "started",
+                "message": "Learning cycle started locally (worker not accessible)"
+            }
+        except Exception as local_err:
+            return {
+                "ok": False,
+                "status": "error",
+                "message": f"Failed to trigger learning: {str(local_err)}"
+            }
 
 
 @app.get("/v1/learning/history")

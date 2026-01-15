@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { differenceInMinutes } from 'date-fns'
-import { Clock, AlertTriangle, Inbox, ChevronRight, User } from 'lucide-react'
+import { AlertTriangle, Inbox, ChevronRight, User } from 'lucide-react'
 import clsx from 'clsx'
 import { Ticket } from '@/types/ticket.types'
 import { isStaffMember, getDisplayName } from '@/utils/senderUtils'
@@ -40,19 +40,6 @@ const statusConfig: Record<string, { label: string; color: string; bg: string; d
   },
 }
 
-const priorityConfig: Record<string, { label: string; color: string; dot: string }> = {
-  urgent: { label: '긴급', color: 'text-red-600', dot: 'bg-red-500' },
-  high: { label: '높음', color: 'text-orange-600', dot: 'bg-orange-500' },
-  normal: { label: '보통', color: 'text-slate-600', dot: 'bg-slate-400' },
-  low: { label: '낮음', color: 'text-slate-400', dot: 'bg-slate-300' },
-}
-
-function formatSlaRemaining(seconds: number | undefined): string {
-  if (seconds === undefined || seconds === null) return ''
-  const minutes = Math.floor(Math.abs(seconds) / 60)
-  if (seconds < 0) return `${minutes}분 초과`
-  return `${minutes}분 남음`
-}
 
 // 회신 필요 여부 확인 (LLM 분류 기반)
 // 고객 메시지 중 답변이 필요한 메시지만 회신 필요로 표시
@@ -81,7 +68,9 @@ function getWaitingTime(ticket: Ticket): { minutes: number; display: string } | 
   }
 }
 
-function getWaitingTimeColor(minutes: number): string {
+function getWaitingTimeColor(minutes: number, slaBreached?: boolean): string {
+  // SLA 초과 시 빨간색 강조
+  if (slaBreached) return 'text-red-600 dark:text-red-400 font-semibold'
   if (minutes < 5) return 'text-green-600 dark:text-green-400'
   if (minutes < 15) return 'text-yellow-600 dark:text-yellow-400'
   if (minutes < 30) return 'text-orange-600 dark:text-orange-400'
@@ -186,15 +175,18 @@ export function TicketList({
           <h2 className="font-semibold text-slate-900 dark:text-white text-sm">
             대화 목록 <span className="text-slate-400 font-normal">({total})</span>
           </h2>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-2xs text-slate-500">
             <div className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span>SLA</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+              <span>지연</span>
             </div>
-            <span>•</span>
             <div className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-amber-500" />
-              <span>긴급</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
+              <span>대기</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span>완료</span>
             </div>
           </div>
         </div>
@@ -205,7 +197,6 @@ export function TicketList({
         {ticketItems.map((ticket, index) => {
           const isSelected = selectedTicketId === ticket.ticket_id
           const status = statusConfig[ticket.status] || statusConfig.onboarding
-          const priority = priorityConfig[ticket.priority] || priorityConfig.normal
           const needsReply = checkNeedsReply(ticket)
           // SLA는 회신 필요한 경우에만 체크
           const hasSLA = needsReply && (ticket.sla_breached || (ticket.sla_remaining_sec !== undefined && ticket.sla_remaining_sec < 0))
@@ -299,10 +290,11 @@ export function TicketList({
                     {/* 회신 필요 시 대기 시간 표시, 완료 시 회신 불필요 표시 */}
                     {waitingTime ? (
                       <span className={clsx(
-                        'text-2xs font-medium flex-shrink-0 ml-2',
-                        getWaitingTimeColor(waitingTime.minutes)
+                        'text-2xs flex-shrink-0 ml-2',
+                        getWaitingTimeColor(waitingTime.minutes, hasSLA)
                       )}>
                         {waitingTime.display}
+                        {hasSLA && ' (응답 지연)'}
                       </span>
                     ) : (
                       <span className="text-2xs text-green-600 dark:text-green-400 flex-shrink-0 ml-2">
@@ -335,38 +327,14 @@ export function TicketList({
                     {ticket.summary_latest || '새로운 문의'}
                   </p>
 
-                  {/* Footer */}
-                  <div className="flex items-center justify-between text-2xs">
-                    <div className="flex items-center gap-3">
-                      {/* Priority */}
-                      <span className={clsx('flex items-center gap-1', priority.color)}>
-                        <span className={clsx('w-1.5 h-1.5 rounded-full', priority.dot)} />
-                        {priority.label}
+                  {/* Footer - Topic만 표시 */}
+                  {ticket.topic_primary && (
+                    <div className="flex items-center text-2xs">
+                      <span className="text-slate-400 dark:text-slate-500 truncate max-w-[200px]">
+                        #{ticket.topic_primary}
                       </span>
-
-                      {/* Topic */}
-                      {ticket.topic_primary && (
-                        <span className="text-slate-400 dark:text-slate-500 truncate max-w-[120px]">
-                          #{ticket.topic_primary}
-                        </span>
-                      )}
                     </div>
-
-                    {/* SLA - 회신 필요한 경우에만 표시 */}
-                    {needsReply && ticket.sla_remaining_sec !== undefined && ticket.sla_remaining_sec !== null && (
-                      <span className={clsx(
-                        'flex items-center gap-1 font-medium',
-                        ticket.sla_breached || ticket.sla_remaining_sec < 0
-                          ? 'text-red-600 dark:text-red-400'
-                          : ticket.sla_remaining_sec < 300 // 5분 미만
-                            ? 'text-amber-600 dark:text-amber-400'
-                            : 'text-slate-400 dark:text-slate-500'
-                      )}>
-                        <Clock className="w-3 h-3" />
-                        {formatSlaRemaining(ticket.sla_remaining_sec)}
-                      </span>
-                    )}
-                  </div>
+                  )}
                 </div>
 
                 {/* Arrow */}

@@ -12,9 +12,8 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build argument for API URL (injected at build time)
-ARG VITE_API_URL=http://localhost:8000
-ENV VITE_API_URL=$VITE_API_URL
+# Production API URL
+ENV VITE_API_URL=https://cs-dashboard-api-302501051708.asia-northeast3.run.app
 
 # Build the application
 RUN npm run build

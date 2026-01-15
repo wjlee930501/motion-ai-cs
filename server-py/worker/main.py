@@ -613,6 +613,30 @@ async def root():
     return {"service": "cs-worker", "status": "running"}
 
 
+@app.post("/learning/run")
+async def trigger_learning():
+    """Trigger manual learning cycle - called by Dashboard API"""
+    import threading
+    from .learning import run_learning_cycle_manual
+
+    def run_in_background():
+        try:
+            logger.info("[Learning] Manual learning cycle starting...")
+            run_learning_cycle_manual()
+            logger.info("[Learning] Manual learning cycle completed")
+        except Exception as e:
+            logger.error(f"[Learning] Manual run failed: {e}")
+
+    thread = threading.Thread(target=run_in_background, daemon=True)
+    thread.start()
+
+    return {
+        "ok": True,
+        "status": "started",
+        "message": "Learning cycle started in background"
+    }
+
+
 def main():
     """Main entry point - for local development"""
     logger.info("Worker starting in standalone mode...")
