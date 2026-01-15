@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Bell, Settings, LogOut, Moon, Sun, Menu, X, Sparkles, ChevronDown, Search } from 'lucide-react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { Bell, Settings, LogOut, Moon, Sun, Menu, X, Sparkles, ChevronDown, Search, Brain } from 'lucide-react'
 import { Button } from '../ui'
 import clsx from 'clsx'
 
@@ -11,9 +12,13 @@ interface HeaderProps {
 }
 
 export function Header({ userName, onLogout, onToggleTheme, isDarkMode }: HeaderProps) {
+  const navigate = useNavigate()
+  const location = useLocation()
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+
+  const isLabPage = location.pathname === '/lab'
 
   const notifications = [
     {
@@ -157,6 +162,20 @@ export function Header({ userName, onLogout, onToggleTheme, isDarkMode }: Header
                 )}
               </Button>
             )}
+
+            {/* Lab Button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className={clsx(
+                'rounded-xl flex items-center gap-2',
+                isLabPage && 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
+              )}
+              onClick={() => navigate('/lab')}
+            >
+              <Brain className="w-5 h-5" />
+              <span className="text-sm font-medium hidden lg:inline">연구실</span>
+            </Button>
 
             {/* Settings */}
             <Button variant="ghost" size="sm" className="rounded-xl">

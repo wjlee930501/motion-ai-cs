@@ -10,6 +10,7 @@ import { CSAnalyticsPage } from './pages/CSAnalyticsPage'
 import { SimpleLoggerPage } from './pages/SimpleLoggerPage'
 import { LoginPage } from './pages/LoginPage'
 import { TicketsPageNew } from './pages/TicketsPageNew'
+import { LabPage } from './pages/LabPage'
 import RequestsPage from './pages/Requests/RequestsPage'
 import wsService from './services/websocket'
 
@@ -46,6 +47,7 @@ function App() {
             <Route path="/" element={<Navigate to="/tickets" replace />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/tickets" element={<TicketsPageNew />} />
+            <Route path="/lab" element={<LabPage />} />
 
             {/* Legacy routes */}
             <Route path="/requests" element={<RequestsPage />} />
