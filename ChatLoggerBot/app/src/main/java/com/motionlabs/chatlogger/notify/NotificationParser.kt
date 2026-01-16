@@ -142,6 +142,49 @@ class NotificationParser {
         }
     }
 
+    /**
+     * Get debug info from notification for troubleshooting parse failures
+     */
+    fun getDebugInfo(notification: Notification): String {
+        return try {
+            val extras = notification.extras
+            val sb = StringBuilder()
+            sb.append("=== Notification Debug Info ===
+")
+            
+            // Get all standard fields
+            val title = extras.getCharSequence(EXTRA_TITLE)?.toString()
+            val text = extras.getCharSequence(EXTRA_TEXT)?.toString()
+            val subText = extras.getCharSequence(EXTRA_SUB_TEXT)?.toString()
+            val bigText = extras.getCharSequence(EXTRA_BIG_TEXT)?.toString()
+            val conversationTitle = extras.getCharSequence(EXTRA_CONVERSATION_TITLE)?.toString()
+            val messages = extras.getParcelableArray(EXTRA_MESSAGES)
+            
+            sb.append("title: $title
+")
+            sb.append("text: $text
+")
+            sb.append("subText: $subText
+")
+            sb.append("bigText: $bigText
+")
+            sb.append("conversationTitle: $conversationTitle
+")
+            sb.append("hasMessages: ${!messages.isNullOrEmpty()}
+")
+            sb.append("messagesCount: ${messages?.size ?: 0}
+")
+            
+            // Get all extra keys
+            sb.append("allKeys: ${extras.keySet().joinToString(", ")}
+")
+            
+            sb.toString()
+        } catch (e: Exception) {
+            "Error getting debug info: ${e.message}"
+        }
+    }
+
     private fun convertExtrasToJson(extras: Bundle): String {
         return try {
             val json = JsonObject()

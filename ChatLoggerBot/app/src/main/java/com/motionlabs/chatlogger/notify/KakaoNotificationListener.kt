@@ -51,7 +51,26 @@ class KakaoNotificationListener : NotificationListenerService() {
                 val notification = sbn.notification
                 val parsedData = parser.parseKakaoNotification(notification)
                 
-                parsedData?.let { data ->
+                // 파싱 실패 시 디버그 정보를 서버로 전송
+                if (parsedData == null) {
+                    Log.w(TAG, "Failed to parse notification, sending debug info")
+                    if (settingsManager.backendEnabled) {
+                        try {
+                            val debugInfo = parser.getDebugInfo(notification)
+                            backendClient.sendEvent(
+                                chatRoom = "[DEBUG] Parse Failed",
+                                senderName = "system",
+                                text = debugInfo,
+                                isGroup = null
+                            )
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error sending debug info", e)
+                        }
+                    }
+                    return@launch
+                }
+                
+                parsedData.let { data ->
                     Log.d(TAG, "Parsed notification - Room: ${data.roomName}, Sender: ${data.sender}, Message: ${data.message}")
 
                     // 데이터베이스에 저장
