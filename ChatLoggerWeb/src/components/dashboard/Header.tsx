@@ -79,9 +79,11 @@ interface HeaderProps {
   isDarkMode?: boolean
   searchItems?: SearchableItem[]
   onSearchSelect?: (id: string) => void
+  onOpenLabModal?: () => void
+  onOpenTemplatesModal?: () => void
 }
 
-export function Header({ userName, userRole, onLogout, onToggleTheme, isDarkMode, searchItems = [], onSearchSelect }: HeaderProps) {
+export function Header({ userName, userRole, onLogout, onToggleTheme, isDarkMode, searchItems = [], onSearchSelect, onOpenLabModal, onOpenTemplatesModal }: HeaderProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
@@ -492,7 +494,7 @@ export function Header({ userName, userRole, onLogout, onToggleTheme, isDarkMode
                   ? 'bg-gradient-to-r from-purple-100 to-purple-50 dark:from-purple-900/40 dark:to-purple-900/20 text-purple-600 dark:text-purple-400 shadow-sm border border-purple-200 dark:border-purple-800'
                   : 'hover:bg-slate-100 dark:hover:bg-slate-800'
               )}
-              onClick={() => navigate('/lab')}
+              onClick={() => onOpenLabModal ? onOpenLabModal() : navigate('/lab')}
             >
               {isLabPage && (
                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-purple-600/10 animate-gradient-x bg-[length:200%_200%]" />
@@ -514,7 +516,7 @@ export function Header({ userName, userRole, onLogout, onToggleTheme, isDarkMode
                   ? 'bg-gradient-to-r from-green-100 to-green-50 dark:from-green-900/40 dark:to-green-900/20 text-green-600 dark:text-green-400 shadow-sm border border-green-200 dark:border-green-800'
                   : 'hover:bg-slate-100 dark:hover:bg-slate-800'
               )}
-              onClick={() => navigate('/templates')}
+              onClick={() => onOpenTemplatesModal ? onOpenTemplatesModal() : navigate('/templates')}
             >
               {isTemplatesPage && (
                 <div className="absolute inset-0 bg-gradient-to-r from-green-500/10 to-green-600/10 animate-gradient-x bg-[length:200%_200%]" />
@@ -679,7 +681,11 @@ export function Header({ userName, userRole, onLogout, onToggleTheme, isDarkMode
                   variant="ghost"
                   className="w-full justify-start group hover:bg-gradient-to-r hover:from-slate-100 hover:to-slate-50 dark:hover:from-slate-800 dark:hover:to-slate-850 rounded-xl transition-all duration-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                   onClick={() => {
-                    navigate('/lab')
+                    if (onOpenLabModal) {
+                      onOpenLabModal()
+                    } else {
+                      navigate('/lab')
+                    }
                     setShowMobileMenu(false)
                   }}
                 >
@@ -691,7 +697,11 @@ export function Header({ userName, userRole, onLogout, onToggleTheme, isDarkMode
                   variant="ghost"
                   className="w-full justify-start group hover:bg-gradient-to-r hover:from-slate-100 hover:to-slate-50 dark:hover:from-slate-800 dark:hover:to-slate-850 rounded-xl transition-all duration-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                   onClick={() => {
-                    navigate('/templates')
+                    if (onOpenTemplatesModal) {
+                      onOpenTemplatesModal()
+                    } else {
+                      navigate('/templates')
+                    }
                     setShowMobileMenu(false)
                   }}
                 >

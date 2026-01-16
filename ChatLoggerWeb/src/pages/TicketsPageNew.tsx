@@ -13,6 +13,7 @@ import {
   TicketList,
   TicketDetail
 } from '@/components/dashboard'
+import { LabModal, TemplatesModal } from '@/components/modals'
 
 const DEFAULT_FILTERS: TicketFilters = {
   page: 1,
@@ -32,6 +33,8 @@ export function TicketsPageNew() {
   const [replyFilter, setReplyFilter] = useState<ReplyFilter>('all')
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
   const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [isLabModalOpen, setIsLabModalOpen] = useState(false)
+  const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false)
 
   // Online/offline status
   useEffect(() => {
@@ -169,6 +172,14 @@ export function TicketsPageNew() {
     queryClient.invalidateQueries('metrics')
   }, [refetchTickets, queryClient])
 
+  const handleOpenLabModal = useCallback(() => {
+    setIsLabModalOpen(true)
+  }, [])
+
+  const handleOpenTemplatesModal = useCallback(() => {
+    setIsTemplatesModalOpen(true)
+  }, [])
+
   // Format last refresh time
   const formatLastRefresh = () => {
     return lastRefresh.toLocaleTimeString('ko-KR', {
@@ -203,6 +214,8 @@ export function TicketsPageNew() {
           const ticket = ticketsData?.tickets?.find(t => t.ticket_id === id)
           if (ticket) handleTicketSelect(ticket)
         }}
+        onOpenLabModal={handleOpenLabModal}
+        onOpenTemplatesModal={handleOpenTemplatesModal}
       />
 
       {/* Main Layout */}
@@ -362,6 +375,18 @@ export function TicketsPageNew() {
           </div>
         </div>
       )}
+
+      {/* Lab Modal */}
+      <LabModal
+        isOpen={isLabModalOpen}
+        onClose={() => setIsLabModalOpen(false)}
+      />
+
+      {/* Templates Modal */}
+      <TemplatesModal
+        isOpen={isTemplatesModalOpen}
+        onClose={() => setIsTemplatesModalOpen(false)}
+      />
     </div>
   )
 }
