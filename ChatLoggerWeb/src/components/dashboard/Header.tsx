@@ -159,6 +159,24 @@ export function Header({ userName, userRole, onLogout, onToggleTheme, isDarkMode
     }
   }, [showSearch])
 
+  // ESC key listener for modals
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showSearch) setShowSearch(false)
+        if (showNotifications) setShowNotifications(false)
+        if (showUserMenu) setShowUserMenu(false)
+        if (showMobileMenu) setShowMobileMenu(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [showSearch, showNotifications, showUserMenu, showMobileMenu])
+
   // 키보드 단축키 (⌘K)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

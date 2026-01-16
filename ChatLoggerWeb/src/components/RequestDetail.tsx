@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import {
@@ -23,6 +23,21 @@ const RequestDetail: React.FC<RequestDetailProps> = ({
 }) => {
   const [notes, setNotes] = useState(request.notes || '');
   const [assignee, setAssignee] = useState(request.assignee || '');
+
+  // ESC key listener
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [onClose]);
 
   // Fetch full request details with context
   const { data: fullRequest } = useQuery(
@@ -49,10 +64,16 @@ const RequestDetail: React.FC<RequestDetailProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+    <div
+      className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+        <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">
               요청 상세 정보
@@ -69,7 +90,7 @@ const RequestDetail: React.FC<RequestDetailProps> = ({
         {/* Content */}
         <div className="flex h-[calc(90vh-80px)]">
           {/* Left Panel - Request Info */}
-          <div className="flex-1 p-6 overflow-y-auto">
+          <div className="flex-1 p-4 overflow-y-auto">
             <div className="space-y-4">
               {/* Basic Info */}
               <div className="bg-gray-50 rounded-lg p-4">
@@ -151,7 +172,7 @@ const RequestDetail: React.FC<RequestDetailProps> = ({
           </div>
 
           {/* Right Panel - Actions & Templates */}
-          <div className="w-96 border-l border-gray-200 p-6 flex flex-col">
+          <div className="w-80 border-l border-gray-200 p-4 flex flex-col">
             {/* Status & Assignment */}
             <div className="space-y-4 mb-6">
               <div>

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { ticketApi } from '@/services/ticketApi'
 import { Template, TemplateCategory, TemplateCreate } from '@/types/ticket.types'
@@ -30,6 +30,23 @@ export function TemplatesModal({ isOpen, onClose }: TemplatesModalProps) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null)
   const [copiedId, setCopiedId] = useState<number | null>(null)
+
+  // ESC key listener
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose()
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape)
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isOpen, onClose])
 
   // Fetch templates
   const { data: templatesData, isLoading } = useQuery({
@@ -132,10 +149,10 @@ export function TemplatesModal({ isOpen, onClose }: TemplatesModalProps) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-5xl mx-auto">
+        <div className="flex-1 overflow-auto p-4">
+          <div className="max-w-4xl mx-auto">
             {/* Search & Categories */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-200/50 dark:border-slate-700/50 p-6 mb-6">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-200/50 dark:border-slate-700/50 p-4 mb-4">
               {/* Search */}
               <div className="relative mb-6">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -189,7 +206,7 @@ export function TemplatesModal({ isOpen, onClose }: TemplatesModalProps) {
                 templates.map((template: Template) => (
                   <div
                     key={template.id}
-                    className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg shadow-slate-200/50 dark:shadow-none border border-slate-200/50 dark:border-slate-700/50 p-6 hover:shadow-xl transition-all group"
+                    className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg shadow-slate-200/50 dark:shadow-none border border-slate-200/50 dark:border-slate-700/50 p-4 hover:shadow-xl transition-all group"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
@@ -293,6 +310,21 @@ function TemplateFormModal({ template, onClose, onSave, isSaving }: TemplateForm
   const [content, setContent] = useState(template?.content || '')
   const [category, setCategory] = useState<TemplateCategory>(template?.category || '기타')
 
+  // ESC key listener
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [onClose])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim() || !content.trim()) return
@@ -300,10 +332,16 @@ function TemplateFormModal({ template, onClose, onSave, isSaving }: TemplateForm
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-xl">
+    <div
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <form onSubmit={handleSubmit}>
-          <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">
               {template ? '템플릿 수정' : '새 템플릿'}
             </h2>
@@ -316,7 +354,7 @@ function TemplateFormModal({ template, onClose, onSave, isSaving }: TemplateForm
             </button>
           </div>
 
-          <div className="p-6 space-y-4">
+          <div className="p-4 space-y-4">
             {/* Title */}
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
@@ -373,7 +411,7 @@ function TemplateFormModal({ template, onClose, onSave, isSaving }: TemplateForm
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-3 p-6 border-t border-slate-200 dark:border-slate-700">
+          <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-200 dark:border-slate-700">
             <button
               type="button"
               onClick={onClose}

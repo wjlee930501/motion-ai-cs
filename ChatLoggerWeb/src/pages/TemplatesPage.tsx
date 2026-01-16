@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { ticketApi } from '@/services/ticketApi'
 import { Template, TemplateCategory, TemplateCreate } from '@/types/ticket.types'
@@ -265,6 +265,21 @@ function TemplateModal({ template, onClose, onSave, isSaving }: TemplateModalPro
   const [content, setContent] = useState(template?.content || '')
   const [category, setCategory] = useState<TemplateCategory>(template?.category || '기타')
 
+  // ESC key listener
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [onClose])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim() || !content.trim()) return
@@ -272,10 +287,16 @@ function TemplateModal({ template, onClose, onSave, isSaving }: TemplateModalPro
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-xl">
+    <div
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <form onSubmit={handleSubmit}>
-          <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">
               {template ? '템플릿 수정' : '새 템플릿'}
             </h2>
@@ -288,7 +309,7 @@ function TemplateModal({ template, onClose, onSave, isSaving }: TemplateModalPro
             </button>
           </div>
 
-          <div className="p-6 space-y-4">
+          <div className="p-4 space-y-4">
             {/* Title */}
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
@@ -345,7 +366,7 @@ function TemplateModal({ template, onClose, onSave, isSaving }: TemplateModalPro
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-3 p-6 border-t border-slate-200 dark:border-slate-700">
+          <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-200 dark:border-slate-700">
             <button
               type="button"
               onClick={onClose}

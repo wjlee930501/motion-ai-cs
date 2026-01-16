@@ -74,6 +74,48 @@ def get_cs_understanding_context() -> Optional[str]:
     return None
 
 
+
+
+def get_recent_conversation_context(chat_room: str, limit: int = 3) -> list[dict]:
+    """
+    최근 메시지 맥락을 조회하여 분류 정확도 향상
+    
+    Args:
+        chat_room: 채팅방 이름
+        limit: 조회할 메시지 수 (기본 3개)
+    
+    Returns:
+        최근 메시지 리스트 [{"sender_type": "customer", "text": "..."}, ...]
+    """
+    try:
+        db = next(get_db())
+        from shared.models import MessageEvent
+        
+        recent_events = db.query(MessageEvent).filter(
+            MessageEvent.chat_room == chat_room
+        ).order_by(
+            MessageEvent.received_at.desc()
+        ).limit(limit + 1).all()  # +1 because current message might be included
+        
+        db.close()
+        
+        if not recent_events or len(recent_events) <= 1:
+            return []
+        
+        # 현재 메시지 제외하고 역순으로 반환 (시간순)
+        context = []
+        for event in reversed(recent_events[1:]):  # Skip the most recent (current)
+            context.append({
+                "sender_type": event.sender_type,
+                "text": event.text_raw[:100] if event.text_raw else ""
+            })
+        
+        return context
+        
+    except Exception as e:
+        print(f"[LLM] Failed to load conversation context: {e}")
+        return []
+
 def build_classification_prompt(base_prompt: str) -> str:
     """
     기본 프롬프트에 CSUnderstanding 컨텍스트를 추가
@@ -112,11 +154,17 @@ EVENT_CLASSIFICATION_SYSTEM = """당신은 병원 CS 메시지 분류 전문가�
 - summary: 핵심 내용 1줄 요약 (20자 이내)
 - confidence: 분류 확신도 (0.0~1.0)
 
-Intent (의도) - 4가지 중 선택:
-- 질문: 무언가를 물어보는 경우 (예: "이거 어떻게 해요?", "가능한가요?")
-- 요청: 무언가를 해달라고 하는 경우 (예: "수정해주세요", "추가 부탁드립니다")
-- 자료전송: 사진, 파일, 자료를 보내는 경우 (예: "사진 보내드립니다", 이미지 전송)
-- 기타: 인사, 감사, 확인 등 위에 해당하지 않는 경우
+Intent (의도) - 10가지 중 선택:
+- inquiry_status: 상태/진행 확인 문의 (예: "발송됐나요?", "처리됐나요?", "언제 되나요?")
+- request_action: 작업 요청 (예: "해주세요", "부탁드립니다", "진행해주세요")
+- request_change: 변경/수정 요청 (예: "수정해주세요", "변경 부탁드립니다", "취소해주세요")
+- complaint: 불만/클레임 (예: "왜 안 되는 거죠?", "문제가 있어요", "이게 뭐예요")
+- question_how: 방법/사용법 문의 (예: "어떻게 해요?", "방법이 뭐예요?")
+- question_when: 일정/시간 문의 (예: "언제 가능해요?", "시간이 어떻게 되나요?")
+- provide_info: 정보/자료 제공 (예: "사진 보내드립니다", "자료입니다", 파일 전송)
+- acknowledgment: 확인/동의 (예: "네", "알겠습니다", "확인했습니다", "감사합니다")
+- greeting: 인사 (예: "안녕하세요", "수고하세요")
+- other: 위에 해당하지 않는 기타
 
 Topic 목록:
 - 발송/전송 문제
@@ -130,8 +178,9 @@ Topic 목록:
 - 인사/감사
 
 needs_reply 판단 기준:
-- true: 질문, 요청, 문의, 불만, 도움 필요 등 답변이 필요한 경우
-- false: 인사, 감사, 확인 ("네", "알겠습니다", "감사합니다" 등), 단순 응답, 자료전송만 한 경우
+- true: inquiry_status, request_action, request_change, complaint, question_how, question_when (답변 필요)
+- false: provide_info, acknowledgment, greeting, other (답변 불필요 또는 선택적)
+- 맥락 고려: 이전 대화 흐름에서 추가 조치가 필요한지 판단
 
 반드시 유효한 JSON만 출력하세요. 설명 없이 JSON만 출력합니다."""
 
@@ -202,7 +251,7 @@ def classify_event(
             "topic": "인사/감사",
             "urgency": "low",
             "sentiment": "neutral",
-            "intent": "기타",
+            "intent": "other",
             "needs_reply": False,  # Simple acknowledgments don't need a reply
             "summary": text[:20],
             "confidence": 1.0
@@ -216,11 +265,23 @@ def classify_event(
 
     client = get_anthropic_client()
 
+    # P2: 최근 대화 맥락 조회
+    conversation_context = get_recent_conversation_context(chat_room)
+    
+    context_str = ""
+    if conversation_context:
+        context_lines = []
+        for msg in conversation_context:
+            sender_label = "고객" if msg["sender_type"] == "customer" else "직원"
+            context_lines.append(f"  [{sender_label}] {msg['text']}")
+        context_str = "\n이전 대화 맥락 (최근 " + str(len(conversation_context)) + "개):\n" + "\n".join(context_lines) + "\n"
+
     user_prompt = f"""채팅방: {chat_room}
 발신자 유형: {sender_type}
-메시지: {text}
+{context_str}
+현재 메시지: {text}
 
-위 메시지를 분석하여 JSON으로 반환하세요."""
+위 메시지를 분석하여 JSON으로 반환하세요. 이전 대화 맥락이 있다면 참고하여 의도와 긴급도를 판단하세요."""
 
     # 학습된 CS 패턴을 프롬프트에 반영
     system_prompt = build_classification_prompt(EVENT_CLASSIFICATION_SYSTEM)
@@ -242,7 +303,7 @@ def classify_event(
                 "topic": "기타 문의",
                 "urgency": "medium",
                 "sentiment": "neutral",
-                "intent": "기타",
+                "intent": "other",
                 "needs_reply": True,  # Assume needs reply if classification failed
                 "summary": text[:20],
                 "confidence": 0.5
@@ -266,7 +327,7 @@ def classify_event(
             "topic": "기타 문의",
             "urgency": "medium",
             "sentiment": "neutral",
-            "intent": "기타",
+            "intent": "other",
             "needs_reply": True,  # Assume needs reply if error occurred
             "summary": text[:20],
             "confidence": 0.3,

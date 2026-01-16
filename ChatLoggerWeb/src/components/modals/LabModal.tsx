@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useQuery, useMutation } from 'react-query'
 import {
   Brain,
@@ -104,6 +104,23 @@ export function LabModal({ isOpen, onClose }: LabModalProps) {
   const { isAdmin } = useAuthStore()
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+
+  // ESC key listener
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose()
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape)
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isOpen, onClose])
 
   // Queries
   const {
@@ -232,14 +249,14 @@ export function LabModal({ isOpen, onClose }: LabModalProps) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-6xl mx-auto">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="flex-1 overflow-auto p-4">
+          <div className="max-w-4xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Understanding Section - 2 columns */}
-              <div className="lg:col-span-2 space-y-6">
+              <div className="lg:col-span-2 space-y-4">
                 {/* Current Understanding Card */}
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                  <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <Sparkles className="w-5 h-5 text-purple-500" />
                       <h2 className="font-semibold text-slate-900 dark:text-white">
@@ -268,7 +285,7 @@ export function LabModal({ isOpen, onClose }: LabModalProps) {
                       <Loader2 className="w-8 h-8 text-purple-500 animate-spin" />
                     </div>
                   ) : displayUnderstanding ? (
-                    <div className="p-6">
+                    <div className="p-4">
                       {/* Meta Info */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3">
@@ -321,7 +338,7 @@ export function LabModal({ isOpen, onClose }: LabModalProps) {
               </div>
 
               {/* Sidebar - 1 column */}
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {/* Version History */}
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">

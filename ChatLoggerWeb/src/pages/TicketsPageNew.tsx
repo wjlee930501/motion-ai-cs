@@ -59,6 +59,23 @@ export function TicketsPageNew() {
     }
   }, [isAuthenticated, navigate])
 
+  // ESC key listener for mobile modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedTicket) {
+        setSelectedTicket(null)
+      }
+    }
+
+    if (selectedTicket) {
+      document.addEventListener('keydown', handleEscape)
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [selectedTicket])
+
   // Combine filters
   const effectiveFilters = useMemo(() => ({
     ...filters
@@ -347,8 +364,14 @@ export function TicketsPageNew() {
 
       {/* Mobile Ticket Detail Modal (for smaller screens) */}
       {selectedTicket && (
-        <div className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end animate-fade-in">
-          <div className="w-full h-[85vh] bg-white dark:bg-slate-900 rounded-t-3xl shadow-2xl animate-slide-in-up overflow-hidden">
+        <div
+          className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end animate-fade-in"
+          onClick={() => setSelectedTicket(null)}
+        >
+          <div
+            className="w-full h-[85vh] bg-white dark:bg-slate-900 rounded-t-3xl shadow-2xl animate-slide-in-up overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="h-full flex flex-col">
               {/* Mobile header */}
               <div className="flex-shrink-0 flex justify-between items-center px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
