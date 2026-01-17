@@ -67,7 +67,7 @@ steps:
       - '-t'
       - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/cs-intelligence/${_FRONTEND_SERVICE}:latest'
       - '--build-arg'
-      - 'VITE_API_URL=https://${_DASHBOARD_API_SERVICE}-${_PROJECT_ID}.${_REGION}.run.app'
+      - 'VITE_API_URL=https://cs-dashboard-api-obmkspcd3q-du.a.run.app'
       - '-f'
       - 'ChatLoggerWeb/Dockerfile'
       - './ChatLoggerWeb'
