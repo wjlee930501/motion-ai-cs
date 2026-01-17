@@ -4,13 +4,9 @@ LLM Classification using Claude API
 학습 결과(CSUnderstanding)를 분류에 반영하여 needs_reply 판단 정확도 개선
 """
 
-import os
-import sys
 import json
 import re
 from typing import Optional
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.config import get_settings
 from shared.utils import should_escalate_to_sonnet, should_skip_llm

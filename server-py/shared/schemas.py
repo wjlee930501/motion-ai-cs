@@ -120,7 +120,8 @@ class UserDeleteResponse(BaseModel):
 # Dashboard API - Tickets
 # ============================================
 
-class TicketItem(BaseModel):
+class TicketBase(BaseModel):
+    """Base ticket fields shared between list item and detail views"""
     ticket_id: UUID
     clinic_key: str
     status: str
@@ -134,10 +135,14 @@ class TicketItem(BaseModel):
     last_message_sender: Optional[str] = None  # 마지막 메시지 발송자
     needs_reply: bool = True  # 답변이 필요한 상태인지 (LLM 판단 기반)
     sla_breached: bool
-    sla_remaining_sec: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+
+class TicketItem(TicketBase):
+    """Ticket list item with calculated SLA remaining"""
+    sla_remaining_sec: Optional[int] = None
 
 
 class TicketListResponse(BaseModel):
@@ -147,27 +152,12 @@ class TicketListResponse(BaseModel):
     page: int
 
 
-class TicketDetail(BaseModel):
-    ticket_id: UUID
-    clinic_key: str
-    status: str
-    priority: str
-    topic_primary: Optional[str] = None
-    summary_latest: Optional[str] = None
-    intent: Optional[str] = None  # 고객 메시지 의도 (질문/요청/자료전송/기타)
+class TicketDetail(TicketBase):
+    """Full ticket detail with additional fields"""
     next_action: Optional[str] = None
-    first_inbound_at: Optional[datetime] = None
     first_response_sec: Optional[int] = None
-    last_inbound_at: Optional[datetime] = None
-    last_outbound_at: Optional[datetime] = None
-    last_message_sender: Optional[str] = None  # 마지막 메시지 발송자
-    needs_reply: bool = True  # 답변이 필요한 상태인지 (LLM 판단 기반)
-    sla_breached: bool
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class TicketResponse(BaseModel):

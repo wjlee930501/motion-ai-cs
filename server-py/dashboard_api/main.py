@@ -11,7 +11,6 @@ Endpoints:
 """
 
 import os
-import sys
 from uuid import UUID
 from datetime import datetime, date
 from contextlib import asynccontextmanager
@@ -21,9 +20,6 @@ from fastapi import FastAPI, Depends, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
-
-# Add parent to path for shared imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.database import get_db, engine, Base
 from shared.models import User, Ticket, MessageEvent, TicketEventLink, LLMAnnotation, CSUnderstanding, LearningExecution, Notification, MessageTemplate
@@ -40,44 +36,13 @@ from shared.schemas import (
 )
 from shared.utils import get_kst_now, calculate_sla_remaining_sec
 from shared.config import get_settings
+from shared.migrations import run_column_migrations
 
 from .auth import (
     authenticate_user, create_access_token, get_current_user, get_admin_user, get_password_hash
 )
 
 settings = get_settings()
-
-
-def run_migrations(db: Session):
-    """Run database migrations for new columns"""
-    migrations = [
-        # Add last_message_sender to ticket table
-        ("ticket", "last_message_sender", "ALTER TABLE ticket ADD COLUMN last_message_sender TEXT"),
-        # Add needs_reply to ticket table
-        ("ticket", "needs_reply", "ALTER TABLE ticket ADD COLUMN needs_reply BOOLEAN DEFAULT TRUE"),
-        # Add needs_reply to llm_annotation table
-        ("llm_annotation", "needs_reply", "ALTER TABLE llm_annotation ADD COLUMN needs_reply BOOLEAN"),
-        # Add role to users table
-        ("users", "role", "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'member'"),
-        # Add intent to ticket table
-        ("ticket", "intent", "ALTER TABLE ticket ADD COLUMN intent TEXT"),
-    ]
-
-    for table, column, sql in migrations:
-        try:
-            # Check if column exists
-            check_sql = text(f"""
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name = '{table}' AND column_name = '{column}'
-            """)
-            result = db.execute(check_sql).fetchone()
-            if not result:
-                db.execute(text(sql))
-                db.commit()
-                print(f"Migration: Added {column} to {table}")
-        except Exception as e:
-            db.rollback()
-            print(f"Migration error for {table}.{column}: {e}")
 
 
 @asynccontextmanager
@@ -88,7 +53,7 @@ async def lifespan(app: FastAPI):
     # Run migrations for new columns
     db = next(get_db())
     try:
-        run_migrations(db)
+        run_column_migrations(db)
     except Exception as e:
         print(f"Migration error: {e}")
     finally:

@@ -2,14 +2,10 @@
 Slack notification utilities
 """
 
-import os
-import sys
 from datetime import datetime
 from typing import Optional, Tuple
 
 import httpx
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.config import get_settings
 from shared.utils import get_kst_now

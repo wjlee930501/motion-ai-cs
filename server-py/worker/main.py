@@ -13,7 +13,6 @@ Run modes:
 """
 
 import os
-import sys
 import time
 import logging
 import threading
@@ -25,13 +24,11 @@ from sqlalchemy.orm import Session
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from shared.database import SessionLocal, engine, Base
 from shared.models import MessageEvent, Ticket, TicketEventLink, LLMAnnotation, SLAAlertLog
-from sqlalchemy import text
 from shared.config import get_settings
 from shared.utils import get_kst_now
+from shared.migrations import run_column_migrations, drop_old_status_constraint, migrate_ticket_status, fix_existing_tickets_needs_reply
 
 from .llm import classify_event, summarize_ticket, get_priority_from_urgency, should_upgrade_priority
 from .slack import send_sla_alert, send_urgent_ticket_alert
@@ -383,169 +380,6 @@ worker_thread: Optional[threading.Thread] = None
 worker_started = False
 
 
-def run_migrations(db: Session):
-    """Run database migrations for new columns"""
-    migrations = [
-        ("ticket", "last_message_sender", "ALTER TABLE ticket ADD COLUMN last_message_sender TEXT"),
-        ("ticket", "needs_reply", "ALTER TABLE ticket ADD COLUMN needs_reply BOOLEAN DEFAULT TRUE"),
-        ("ticket", "intent", "ALTER TABLE ticket ADD COLUMN intent TEXT"),
-        ("llm_annotation", "needs_reply", "ALTER TABLE llm_annotation ADD COLUMN needs_reply BOOLEAN"),
-    ]
-
-    for table, column, sql in migrations:
-        try:
-            check_sql = text(f"""
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name = '{table}' AND column_name = '{column}'
-            """)
-            result = db.execute(check_sql).fetchone()
-            if not result:
-                db.execute(text(sql))
-                db.commit()
-                logger.info(f"Migration: Added {column} to {table}")
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Migration error for {table}.{column}: {e}")
-
-    # Drop old status check constraint (will be re-added after status migration)
-    try:
-        db.execute(text("ALTER TABLE ticket DROP CONSTRAINT IF EXISTS ck_ticket_status"))
-        db.commit()
-        logger.info("Migration: Dropped old status constraint")
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Migration error dropping status constraint: {e}")
-
-
-def migrate_ticket_status(db: Session):
-    """Migrate old ticket status values to new lifecycle-based values"""
-    logger.info("Starting status migration...")
-    try:
-        # Map old status to new status: new/in_progress/waiting -> onboarding, done -> stable
-        status_mapping = [
-            ("new", "onboarding"),
-            ("in_progress", "onboarding"),
-            ("waiting", "onboarding"),
-            ("done", "stable"),
-        ]
-        total_migrated = 0
-        for old_status, new_status in status_mapping:
-            migrate_sql = text("""
-                UPDATE ticket SET status = :new_status
-                WHERE status = :old_status
-            """)
-            result = db.execute(migrate_sql, {"old_status": old_status, "new_status": new_status})
-            if result.rowcount > 0:
-                total_migrated += result.rowcount
-                logger.info(f"Migrated {result.rowcount} tickets from '{old_status}' to '{new_status}'")
-        db.commit()
-        if total_migrated > 0:
-            logger.info(f"Status migration complete: {total_migrated} tickets updated")
-
-        # Now add the new constraint after data is migrated
-        try:
-            db.execute(text("""
-                ALTER TABLE ticket ADD CONSTRAINT ck_ticket_status
-                CHECK (status IN ('onboarding', 'stable', 'churn_risk', 'important'))
-            """))
-            db.commit()
-            logger.info("Migration: Added new status constraint")
-        except Exception as ce:
-            db.rollback()
-            # Constraint might already exist with new values
-            logger.info(f"Status constraint already exists or error: {ce}")
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Status migration error: {e}")
-
-
-def fix_existing_tickets(db: Session):
-    """Fix needs_reply for existing tickets based on last message sender"""
-    logger.info("Starting fix_existing_tickets migration...")
-    try:
-        # First, update last_message_sender for all tickets
-        update_sender_sql = text("""
-            UPDATE ticket t
-            SET last_message_sender = latest.sender_name
-            FROM (
-                SELECT DISTINCT ON (tel.ticket_id)
-                    tel.ticket_id,
-                    me.sender_name
-                FROM ticket_event_link tel
-                JOIN message_event me ON me.event_id = tel.event_id
-                ORDER BY tel.ticket_id, me.received_at DESC
-            ) latest
-            WHERE t.ticket_id = latest.ticket_id
-            AND (t.last_message_sender IS NULL OR t.last_message_sender != latest.sender_name)
-        """)
-        result = db.execute(update_sender_sql)
-        db.commit()
-        logger.info(f"Updated last_message_sender: {result.rowcount} rows")
-
-        # Fix needs_reply based on sender_name pattern (모션랩스_ prefix = staff)
-        # If last message sender starts with '모션랩스_' or '[모션랩스_', it's staff - no reply needed
-        fix_sql = text("""
-            UPDATE ticket
-            SET needs_reply = FALSE
-            WHERE (last_message_sender LIKE '모션랩스_%' OR last_message_sender LIKE '[모션랩스_%')
-            AND (needs_reply = TRUE OR needs_reply IS NULL)
-        """)
-        result = db.execute(fix_sql)
-        db.commit()
-        logger.info(f"Fixed needs_reply for staff messages: {result.rowcount} rows")
-
-        # Also fix sender_type in message_event for future consistency
-        fix_sender_type_sql = text("""
-            UPDATE message_event
-            SET sender_type = 'staff',
-                staff_member = SUBSTRING(sender_name FROM 5)
-            WHERE (sender_name LIKE '모션랩스_%' OR sender_name LIKE '[모션랩스_%')
-            AND sender_type != 'staff'
-        """)
-        result = db.execute(fix_sender_type_sql)
-        db.commit()
-        logger.info(f"Fixed sender_type for staff messages: {result.rowcount} rows")
-
-        # Also clear sla_breached for tickets where staff responded
-        fix_sla_sql = text("""
-            UPDATE ticket
-            SET sla_breached = FALSE
-            WHERE (last_message_sender LIKE '모션랩스_%' OR last_message_sender LIKE '[모션랩스_%')
-            AND sla_breached = TRUE
-        """)
-        result = db.execute(fix_sla_sql)
-        db.commit()
-        logger.info(f"Cleared sla_breached for staff-responded tickets: {result.rowcount} rows")
-
-        # Fix specific known staff members who may have incorrect name format
-        # (e.g., "한기훈" without "모션랩스_" prefix)
-        known_staff_names = ['한기훈']
-        for staff_name in known_staff_names:
-            # Fix message_event sender_type
-            fix_known_staff_sql = text("""
-                UPDATE message_event
-                SET sender_type = 'staff', staff_member = :name
-                WHERE sender_name = :name AND sender_type != 'staff'
-            """)
-            result = db.execute(fix_known_staff_sql, {"name": staff_name})
-
-            # Fix ticket needs_reply where last_message_sender is this staff
-            fix_ticket_sql = text("""
-                UPDATE ticket
-                SET needs_reply = FALSE, sla_breached = FALSE
-                WHERE last_message_sender = :name
-                AND (needs_reply = TRUE OR needs_reply IS NULL)
-            """)
-            result2 = db.execute(fix_ticket_sql, {"name": staff_name})
-            db.commit()
-            logger.info(f"Fixed known staff '{staff_name}': {result.rowcount} events, {result2.rowcount} tickets")
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error fixing existing tickets: {e}")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan - start worker thread on startup"""
@@ -554,12 +388,13 @@ async def lifespan(app: FastAPI):
     # Create tables if not exist
     Base.metadata.create_all(bind=engine)
 
-    # Run migrations
+    # Run migrations using shared module
     db = SessionLocal()
     try:
-        run_migrations(db)
+        run_column_migrations(db)
+        drop_old_status_constraint(db)
         migrate_ticket_status(db)
-        fix_existing_tickets(db)
+        fix_existing_tickets_needs_reply(db)
     except Exception as e:
         logger.error(f"Startup error: {e}")
     finally:

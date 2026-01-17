@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from 'react-query'
 import { Toaster } from 'react-hot-toast'
@@ -14,7 +13,6 @@ import { LabPage } from './pages/LabPage'
 import { UsersPage } from './pages/UsersPage'
 import TemplatesPage from './pages/TemplatesPage'
 import RequestsPage from './pages/Requests/RequestsPage'
-import wsService from './services/websocket'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,19 +24,6 @@ const queryClient = new QueryClient({
 })
 
 function App() {
-  useEffect(() => {
-    console.log('App mounted')
-    // Connect to WebSocket on app start (optional, for legacy features)
-    try {
-      wsService.connect()
-    } catch (error) {
-      console.error('WebSocket connection error:', error)
-    }
-
-    return () => {
-      wsService.disconnect()
-    }
-  }, [])
 
   return (
     <QueryClientProvider client={queryClient}>

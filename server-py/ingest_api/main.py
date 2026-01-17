@@ -7,7 +7,6 @@ Endpoints:
 """
 
 import os
-import sys
 from uuid import uuid4
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -16,9 +15,6 @@ from fastapi import FastAPI, Depends, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-
-# Add parent to path for shared imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.database import get_db, engine, Base
 from shared.models import MessageEvent, DeviceHeartbeat

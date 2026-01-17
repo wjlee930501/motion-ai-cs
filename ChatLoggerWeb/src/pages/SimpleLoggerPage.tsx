@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   FiMessageSquare,
   FiSearch,
@@ -9,7 +9,6 @@ import {
 } from 'react-icons/fi'
 import { format } from 'date-fns'
 import { chatApi } from '@/services/api'
-import wsService from '@/services/websocket'
 import toast from 'react-hot-toast'
 import { isStaffMember, getDisplayName } from '@/utils/senderUtils'
 
@@ -36,78 +35,47 @@ export const SimpleLoggerPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
-  const [isConnected, setIsConnected] = useState(false)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const previousScrollHeight = useRef(0)
   const isUserScrolling = useRef(false)
 
+  const loadRooms = useCallback(async () => {
+    try {
+      const data = await chatApi.getRooms()
+      setRooms(data)
+    } catch (error) {
+      console.error('Failed to load rooms:', error)
+    }
+  }, [])
+
+  const loadMessages = useCallback(async (roomId: string) => {
+    setLoading(true)
+    try {
+      const data = await chatApi.getMessages(roomId)
+      setMessages(data)
+    } catch (error) {
+      console.error('Failed to load messages:', error)
+      toast.error('메시지를 불러올 수 없습니다')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     loadRooms()
-    
-    // WebSocket 연결 상태 모니터링
-    const unsubscribeConnected = wsService.on('connected', (connected: boolean) => {
-      setIsConnected(connected)
-      if (connected) {
-        console.log('WebSocket connected')
-      }
-    })
 
-    // 새 메시지 실시간 수신
-    const unsubscribeNewMessage = wsService.on('new_message', (message: Message) => {
-      console.log('New message received:', message)
-      
-      // 현재 선택된 방의 메시지인 경우 메시지 목록에 추가
-      setMessages(prev => {
-        if (selectedRoom?.id === message.roomId) {
-          // 중복 메시지 체크
-          const exists = prev.some(m => m.id === message.id)
-          if (!exists) {
-            // 새 메시지 추가 전 스크롤 상태 확인
-            if (messagesContainerRef.current) {
-              const container = messagesContainerRef.current
-              const scrollBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-              // 사용자가 맨 아래에서 100px 이상 위에 있으면 스크롤 유지
-              isUserScrolling.current = scrollBottom > 100
-              previousScrollHeight.current = container.scrollHeight
-            }
-            return [...prev, message]
-          }
-        }
-        return prev
-      })
-      
-      // 방 목록 업데이트
+    // Polling for updates every 10 seconds
+    const pollInterval = setInterval(() => {
       loadRooms()
-    })
-
-    // 방 업데이트 실시간 수신
-    const unsubscribeRoomUpdate = wsService.on('room_updated', (room: Room) => {
-      console.log('Room updated:', room)
-      setRooms(prev => {
-        const index = prev.findIndex(r => r.id === room.id)
-        if (index >= 0) {
-          const updated = [...prev]
-          updated[index] = room
-          // 최신 메시지 순으로 정렬
-          return updated.sort((a, b) => b.lastMessageAt - a.lastMessageAt)
-        }
-        return [...prev, room].sort((a, b) => b.lastMessageAt - a.lastMessageAt)
-      })
-    })
-
-    // 방 목록 업데이트 실시간 수신
-    const unsubscribeRoomsUpdate = wsService.on('rooms_update', (rooms: Room[]) => {
-      console.log('Rooms update:', rooms)
-      setRooms(rooms)
-    })
+      if (selectedRoom) {
+        loadMessages(selectedRoom.id)
+      }
+    }, 10000)
 
     return () => {
-      unsubscribeConnected()
-      unsubscribeNewMessage()
-      unsubscribeRoomUpdate()
-      unsubscribeRoomsUpdate()
+      clearInterval(pollInterval)
     }
-  }, [selectedRoom])
+  }, [selectedRoom, loadRooms, loadMessages])
 
   // 메시지가 업데이트될 때 스크롤 위치 처리
   useEffect(() => {
@@ -128,28 +96,6 @@ export const SimpleLoggerPage: React.FC = () => {
       }
     }
   }, [messages])
-
-  const loadRooms = async () => {
-    try {
-      const data = await chatApi.getRooms()
-      setRooms(data)
-    } catch (error) {
-      console.error('Failed to load rooms:', error)
-    }
-  }
-
-  const loadMessages = async (roomId: string) => {
-    setLoading(true)
-    try {
-      const data = await chatApi.getMessages(roomId)
-      setMessages(data)
-    } catch (error) {
-      console.error('Failed to load messages:', error)
-      toast.error('메시지를 불러올 수 없습니다')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleRoomSelect = (room: Room) => {
     setSelectedRoom(room)
@@ -202,12 +148,6 @@ export const SimpleLoggerPage: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <h1 className="text-xl font-bold">카카오톡 채팅 로그</h1>
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-              <span className="text-sm text-gray-600">
-                {isConnected ? '연결됨' : '연결 끊김'}
-              </span>
-            </div>
           </div>
           
           <div className="flex items-center space-x-2">

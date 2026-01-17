@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useChatStore } from '@/stores/chatStore'
 import { ChatRoomList } from '@/components/ChatRoomList'
 import { ChatMessageList } from '@/components/ChatMessageList'
 import { StatsPanel } from '@/components/StatsPanel'
 import { chatApi } from '@/services/api'
-import wsService from '@/services/websocket'
-import { ChatMessage, ChatRoom, Stats } from '@/types'
+import { ChatRoom, Stats } from '@/types'
 import { FiRefreshCw, FiSearch } from 'react-icons/fi'
 import toast from 'react-hot-toast'
 
@@ -23,49 +22,33 @@ export const HomePage: React.FC = () => {
   } = useChatStore()
 
   const [stats, setStats] = useState<Stats | null>(null)
-  const [isConnected, setIsConnected] = useState(false)
 
-  useEffect(() => {
-    // Initial data fetch
-    fetchRooms()
-    fetchStats()
-
-    // WebSocket event listeners
-    const unsubscribeConnected = wsService.on('connected', (connected: boolean) => {
-      setIsConnected(connected)
-      if (connected) {
-        toast.success('실시간 연결됨')
-      } else {
-        toast.error('연결 끊김')
-      }
-    })
-
-    const unsubscribeNewMessage = wsService.on('new_message', (message: ChatMessage) => {
-      if (currentRoom?.id === message.roomId) {
-        fetchMessages(message.roomId)
-      }
-      fetchRooms() // Update room list for last message
-    })
-
-    const unsubscribeRoomUpdate = wsService.on('room_updated', (_room: ChatRoom) => {
-      fetchRooms()
-    })
-
-    return () => {
-      unsubscribeConnected()
-      unsubscribeNewMessage()
-      unsubscribeRoomUpdate()
-    }
-  }, [currentRoom])
-
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       const stats = await chatApi.getStats()
       setStats(stats)
     } catch (error) {
       console.error('Failed to fetch stats:', error)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    // Initial data fetch
+    fetchRooms()
+    fetchStats()
+
+    // Polling for updates every 10 seconds
+    const pollInterval = setInterval(() => {
+      fetchRooms()
+      if (currentRoom) {
+        fetchMessages(currentRoom.id)
+      }
+    }, 10000)
+
+    return () => {
+      clearInterval(pollInterval)
+    }
+  }, [currentRoom, fetchRooms, fetchMessages, fetchStats])
 
   const handleRefresh = async () => {
     toast.loading('동기화 중...')
@@ -89,16 +72,6 @@ export const HomePage: React.FC = () => {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <h1 className="text-2xl font-bold text-gray-900">ChatLogger</h1>
-            <div className="flex items-center space-x-2">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  isConnected ? 'bg-green-500' : 'bg-red-500'
-                }`}
-              />
-              <span className="text-sm text-gray-600">
-                {isConnected ? '연결됨' : '연결 끊김'}
-              </span>
-            </div>
           </div>
           
           <div className="flex items-center space-x-4">
