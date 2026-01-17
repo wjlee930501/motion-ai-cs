@@ -62,7 +62,7 @@ interface ChatDao {
     }
 
     @Transaction
-    suspend fun insertMessageWithRoom(roomName: String, sender: String, body: String, rawJson: String? = null) {
+    suspend fun insertMessageWithRoom(roomName: String, sender: String, body: String, rawJson: String? = null): String {
         var room = getRoomByName(roomName)
         if (room == null) {
             room = ChatRoom(
@@ -77,14 +77,61 @@ interface ChatDao {
                 lastMessage = body
             ))
         }
-        
+
         val message = ChatMessage(
             roomId = room.id,
             sender = sender,
             body = body,
             rawJson = rawJson,
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            serverSynced = false  // 초기값: 미동기화
         )
         insertMessage(message)
+        return message.id  // 메시지 ID 반환
     }
+
+    // ============================================
+    // 서버 동기화 관련 쿼리
+    // ============================================
+
+    /**
+     * 메시지 동기화 상태 업데이트
+     */
+    @Query("UPDATE chat_messages SET serverSynced = :synced, syncedAt = :syncedAt WHERE id = :messageId")
+    suspend fun updateSyncStatus(messageId: String, synced: Boolean, syncedAt: Long?)
+
+    /**
+     * 동기화 실패 시 재시도 횟수 증가
+     */
+    @Query("UPDATE chat_messages SET retryCount = retryCount + 1 WHERE id = :messageId")
+    suspend fun incrementRetryCount(messageId: String)
+
+    /**
+     * 미동기화된 메시지 조회 (재시도용)
+     */
+    @Query("""
+        SELECT * FROM chat_messages
+        WHERE serverSynced = 0 AND retryCount < :maxRetries
+        ORDER BY timestamp ASC
+        LIMIT :limit
+    """)
+    suspend fun getUnsyncedMessages(maxRetries: Int = 10, limit: Int = 50): List<ChatMessage>
+
+    /**
+     * 동기화 완료 + 보관 기간 경과한 메시지 삭제
+     */
+    @Query("""
+        DELETE FROM chat_messages
+        WHERE serverSynced = 1 AND syncedAt < :cutoffTime
+    """)
+    suspend fun deleteSyncedMessagesOlderThan(cutoffTime: Long): Int
+
+    /**
+     * 동기화 통계
+     */
+    @Query("SELECT COUNT(*) FROM chat_messages WHERE serverSynced = 0")
+    suspend fun getUnsyncedCount(): Int
+
+    @Query("SELECT COUNT(*) FROM chat_messages WHERE serverSynced = 1")
+    suspend fun getSyncedCount(): Int
 }

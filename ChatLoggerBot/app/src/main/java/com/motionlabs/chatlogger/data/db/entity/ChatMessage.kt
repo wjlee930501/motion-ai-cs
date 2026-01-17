@@ -18,7 +18,8 @@ import java.util.UUID
     ],
     indices = [
         Index(value = ["roomId"]),
-        Index(value = ["timestamp"])
+        Index(value = ["timestamp"]),
+        Index(value = ["serverSynced"])  // 동기화 상태로 조회 최적화
     ]
 )
 data class ChatMessage(
@@ -29,5 +30,8 @@ data class ChatMessage(
     val sender: String,
     val body: String,
     val rawJson: String? = null,
-    val isFromMe: Boolean = false
+    val isFromMe: Boolean = false,
+    val serverSynced: Boolean = false,  // 서버 전송 성공 여부
+    val syncedAt: Long? = null,         // 동기화 완료 시간
+    val retryCount: Int = 0             // 재시도 횟수
 )

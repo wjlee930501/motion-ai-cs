@@ -16,6 +16,11 @@ data class ParsedNotification(
     val isGroup: Boolean? = null
 )
 
+data class ParseResult(
+    val notifications: List<ParsedNotification>,
+    val rawJson: String? = null
+)
+
 class NotificationParser {
     
     companion object {
@@ -31,15 +36,37 @@ class NotificationParser {
 
     private val gson = Gson()
 
+    /**
+     * 단일 알림 파싱 (기존 호환성 유지)
+     */
     fun parseKakaoNotification(notification: Notification): ParsedNotification? {
+        val result = parseKakaoNotificationAll(notification)
+        return result.notifications.lastOrNull()
+    }
+
+    /**
+     * 그룹 알림의 모든 메시지를 파싱
+     * 알림이 쌓여있는 경우 모든 메시지를 반환
+     */
+    fun parseKakaoNotificationAll(notification: Notification): ParseResult {
         return try {
             val extras = notification.extras
             val rawJson = convertExtrasToJson(extras)
-            
-            // MessagingStyle 알림 처리
-            val messagingStyle = parseMessagingStyle(extras)
-            if (messagingStyle != null) {
-                return messagingStyle.copy(rawJson = rawJson)
+
+            // 그룹 요약 알림인지 확인 (FLAG_GROUP_SUMMARY)
+            val isGroupSummary = (notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
+            if (isGroupSummary) {
+                Log.d(TAG, "Skipping group summary notification")
+                return ParseResult(emptyList(), rawJson)
+            }
+
+            // MessagingStyle 알림 처리 - 모든 메시지 반환
+            val messagingStyleResults = parseMessagingStyleAll(extras)
+            if (messagingStyleResults.isNotEmpty()) {
+                return ParseResult(
+                    notifications = messagingStyleResults.map { it.copy(rawJson = rawJson) },
+                    rawJson = rawJson
+                )
             }
 
             // 일반 알림 처리
@@ -49,84 +76,92 @@ class NotificationParser {
             val subText = extras.getCharSequence(EXTRA_SUB_TEXT)?.toString()
 
             val message = bigText ?: text
-            
+
             // 방 이름과 발신자 파싱
             val (roomName, sender, isGroup) = parseRoomAndSender(title, subText)
 
             if (roomName.isNotEmpty() && message.isNotEmpty()) {
-                ParsedNotification(
-                    roomName = roomName,
-                    sender = sender,
-                    message = message,
-                    rawJson = rawJson,
-                    isGroup = isGroup
+                ParseResult(
+                    notifications = listOf(ParsedNotification(
+                        roomName = roomName,
+                        sender = sender,
+                        message = message,
+                        rawJson = rawJson,
+                        isGroup = isGroup
+                    )),
+                    rawJson = rawJson
                 )
             } else {
                 Log.w(TAG, "Incomplete notification data")
-                null
+                ParseResult(emptyList(), rawJson)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing notification", e)
-            null
+            ParseResult(emptyList(), null)
         }
     }
 
-    private fun parseMessagingStyle(extras: Bundle): ParsedNotification? {
+    /**
+     * MessagingStyle 알림의 모든 메시지를 파싱
+     */
+    private fun parseMessagingStyleAll(extras: Bundle): List<ParsedNotification> {
+        val results = mutableListOf<ParsedNotification>()
         try {
             val conversationTitle = extras.getCharSequence(EXTRA_CONVERSATION_TITLE)?.toString()
             val subText = extras.getCharSequence(EXTRA_SUB_TEXT)?.toString()
-            val title = extras.getCharSequence(EXTRA_TITLE)?.toString()
             val messages = extras.getParcelableArray(EXTRA_MESSAGES)
 
-            Log.d(TAG, "DEBUG: conversationTitle=$conversationTitle, subText=$subText, title=$title, hasMessages=${!messages.isNullOrEmpty()}")
+            Log.d(TAG, "DEBUG: conversationTitle=$conversationTitle, subText=$subText, messagesCount=${messages?.size ?: 0}")
 
             if (!messages.isNullOrEmpty()) {
-                val lastMessage = messages.last() as? Bundle
-                if (lastMessage != null) {
-                    val text = lastMessage.getCharSequence("text")?.toString() ?: ""
-                    val sender = lastMessage.getCharSequence("sender")?.toString() ?:
-                                lastMessage.getParcelable<Person>("sender_person")?.name?.toString() ?: "Unknown"
-                    val time = lastMessage.getLong("time", System.currentTimeMillis())
+                // 모든 메시지를 처리 (마지막 것만이 아닌 전체)
+                for (msg in messages) {
+                    val bundle = msg as? Bundle ?: continue
+                    val text = bundle.getCharSequence("text")?.toString() ?: ""
+                    if (text.isEmpty()) continue
 
-                    // 그룹 채팅방 감지 순서:
-                    // 1. conversationTitle이 있고 sender와 다르면 그룹
-                    // 2. subText가 있으면 그룹 (subText = 방 이름, title = 발신자)
+                    val sender = bundle.getCharSequence("sender")?.toString() ?:
+                                bundle.getParcelable<Person>("sender_person")?.name?.toString() ?: "Unknown"
+                    val time = bundle.getLong("time", System.currentTimeMillis())
+
+                    // 그룹 채팅방 감지
                     val roomName: String
                     val isGroup: Boolean
 
                     when {
                         conversationTitle != null && conversationTitle != sender -> {
-                            // conversationTitle이 있는 그룹 채팅
                             roomName = conversationTitle
                             isGroup = true
                         }
                         !subText.isNullOrEmpty() -> {
-                            // subText가 있으면 단톡방 (subText = 방 이름)
                             roomName = subText
                             isGroup = true
                         }
                         else -> {
-                            // 1:1 대화
                             roomName = sender
                             isGroup = false
                         }
                     }
 
-                    Log.d(TAG, "DEBUG: Final roomName=$roomName, sender=$sender, isGroup=$isGroup")
-
-                    return ParsedNotification(
+                    results.add(ParsedNotification(
                         roomName = roomName,
                         sender = sender,
                         message = text,
                         timestamp = time,
                         isGroup = isGroup
-                    )
+                    ))
                 }
+                Log.d(TAG, "DEBUG: Parsed ${results.size} messages from notification")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing MessagingStyle", e)
         }
-        return null
+        return results
+    }
+
+    @Deprecated("Use parseMessagingStyleAll instead")
+    private fun parseMessagingStyle(extras: Bundle): ParsedNotification? {
+        return parseMessagingStyleAll(extras).lastOrNull()
     }
 
     private fun parseRoomAndSender(title: String, subText: String?): Triple<String, String, Boolean> {
@@ -149,9 +184,8 @@ class NotificationParser {
         return try {
             val extras = notification.extras
             val sb = StringBuilder()
-            sb.append("=== Notification Debug Info ===
-")
-            
+            sb.append("=== Notification Debug Info ===\n")
+
             // Get all standard fields
             val title = extras.getCharSequence(EXTRA_TITLE)?.toString()
             val text = extras.getCharSequence(EXTRA_TEXT)?.toString()
@@ -159,25 +193,17 @@ class NotificationParser {
             val bigText = extras.getCharSequence(EXTRA_BIG_TEXT)?.toString()
             val conversationTitle = extras.getCharSequence(EXTRA_CONVERSATION_TITLE)?.toString()
             val messages = extras.getParcelableArray(EXTRA_MESSAGES)
-            
-            sb.append("title: $title
-")
-            sb.append("text: $text
-")
-            sb.append("subText: $subText
-")
-            sb.append("bigText: $bigText
-")
-            sb.append("conversationTitle: $conversationTitle
-")
-            sb.append("hasMessages: ${!messages.isNullOrEmpty()}
-")
-            sb.append("messagesCount: ${messages?.size ?: 0}
-")
-            
+
+            sb.append("title: $title\n")
+            sb.append("text: $text\n")
+            sb.append("subText: $subText\n")
+            sb.append("bigText: $bigText\n")
+            sb.append("conversationTitle: $conversationTitle\n")
+            sb.append("hasMessages: ${!messages.isNullOrEmpty()}\n")
+            sb.append("messagesCount: ${messages?.size ?: 0}\n")
+
             // Get all extra keys
-            sb.append("allKeys: ${extras.keySet().joinToString(", ")}
-")
+            sb.append("allKeys: ${extras.keySet().joinToString(", ")}\n")
             
             sb.toString()
         } catch (e: Exception) {

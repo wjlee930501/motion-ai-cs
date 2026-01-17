@@ -20,7 +20,9 @@ class HealthCheckWorker(
 
     companion object {
         private const val TAG = "HealthCheckWorker"
-        private const val RETENTION_DAYS = 90
+        private const val SYNCED_RETENTION_DAYS = 7    // 동기화된 메시지 보관 기간
+        private const val UNSYNCED_RETENTION_DAYS = 30 // 미동기화 메시지 최대 보관 기간
+        private const val MAX_RETRY_COUNT = 10         // 최대 재시도 횟수
     }
 
     private val settingsManager = SettingsManager.getInstance(context)
@@ -38,8 +40,14 @@ class HealthCheckWorker(
             // Send heartbeat to backend server
             sendHeartbeat()
 
-            // Clean old data
-            cleanOldData()
+            // 미동기화 메시지 재시도
+            retryUnsyncedMessages()
+
+            // 동기화 완료된 오래된 메시지 정리
+            cleanSyncedMessages()
+
+            // 오래된 미동기화 메시지 정리 (30일 이상)
+            cleanOldUnsyncedMessages()
 
             Log.d(TAG, "Health check completed successfully")
             Result.success()
@@ -89,16 +97,99 @@ class HealthCheckWorker(
         }
         Log.d(TAG, "ForegroundService restarted")
     }
-    
-    private suspend fun cleanOldData() {
+
+    /**
+     * 미동기화 메시지 재시도
+     */
+    private suspend fun retryUnsyncedMessages() {
+        if (!settingsManager.backendEnabled) {
+            Log.d(TAG, "Backend sync disabled, skipping retry")
+            return
+        }
+
         try {
             val database = AppDatabase.getDatabase(applicationContext)
-            val cutoffTime = System.currentTimeMillis() - (RETENTION_DAYS * 24 * 60 * 60 * 1000L)
-            
-            val deletedCount = database.chatDao().deleteMessagesOlderThan(cutoffTime)
-            Log.d(TAG, "Cleaned old data, deleted messages older than $RETENTION_DAYS days")
+            val unsyncedMessages = database.chatDao().getUnsyncedMessages(MAX_RETRY_COUNT, 50)
+
+            if (unsyncedMessages.isEmpty()) {
+                Log.d(TAG, "No unsynced messages to retry")
+                return
+            }
+
+            Log.d(TAG, "Retrying ${unsyncedMessages.size} unsynced messages")
+
+            for (message in unsyncedMessages) {
+                try {
+                    // 채팅방 정보 조회
+                    val room = database.chatDao().getRoomById(message.roomId)
+                    val roomName = room?.roomName ?: "Unknown"
+
+                    val result = backendClient.sendEvent(
+                        chatRoom = roomName,
+                        senderName = message.sender,
+                        text = message.body,
+                        isGroup = null
+                    )
+
+                    result.onSuccess { response ->
+                        Log.d(TAG, "Retry successful for message ${message.id}: ${response.eventId}")
+                        database.chatDao().updateSyncStatus(
+                            messageId = message.id,
+                            synced = true,
+                            syncedAt = System.currentTimeMillis()
+                        )
+                    }.onFailure { error ->
+                        Log.w(TAG, "Retry failed for message ${message.id}: ${error.message}")
+                        database.chatDao().incrementRetryCount(message.id)
+                    }
+
+                    // 서버 부하 방지를 위한 딜레이
+                    kotlinx.coroutines.delay(100)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error retrying message ${message.id}", e)
+                    database.chatDao().incrementRetryCount(message.id)
+                }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error cleaning old data", e)
+            Log.e(TAG, "Error in retryUnsyncedMessages", e)
+        }
+    }
+
+    /**
+     * 동기화 완료된 오래된 메시지 삭제 (7일 경과)
+     */
+    private suspend fun cleanSyncedMessages() {
+        try {
+            val database = AppDatabase.getDatabase(applicationContext)
+            val cutoffTime = System.currentTimeMillis() - (SYNCED_RETENTION_DAYS * 24 * 60 * 60 * 1000L)
+
+            val deletedCount = database.chatDao().deleteSyncedMessagesOlderThan(cutoffTime)
+            if (deletedCount > 0) {
+                Log.d(TAG, "Deleted $deletedCount synced messages older than $SYNCED_RETENTION_DAYS days")
+            }
+
+            // 통계 로깅
+            val syncedCount = database.chatDao().getSyncedCount()
+            val unsyncedCount = database.chatDao().getUnsyncedCount()
+            Log.d(TAG, "Message stats - Synced: $syncedCount, Unsynced: $unsyncedCount")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning synced messages", e)
+        }
+    }
+
+    /**
+     * 오래된 미동기화 메시지 삭제 (30일 경과 - 데이터 유실 방지 최후 보루)
+     */
+    private suspend fun cleanOldUnsyncedMessages() {
+        try {
+            val database = AppDatabase.getDatabase(applicationContext)
+            val cutoffTime = System.currentTimeMillis() - (UNSYNCED_RETENTION_DAYS * 24 * 60 * 60 * 1000L)
+
+            // 30일 지난 메시지는 동기화 여부와 관계없이 삭제 (앱 용량 관리)
+            database.chatDao().deleteMessagesOlderThan(cutoffTime)
+            Log.d(TAG, "Cleaned all messages older than $UNSYNCED_RETENTION_DAYS days")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning old unsynced messages", e)
         }
     }
 }

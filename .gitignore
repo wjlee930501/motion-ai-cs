@@ -49,3 +49,7 @@ tmpclaude-*
 
 # Root env file
 .env
+
+# Google Cloud SDK
+google-cloud-sdk/
+google-cloud-cli-*.tar.gz
