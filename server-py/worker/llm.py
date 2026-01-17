@@ -72,13 +72,13 @@ def get_cs_understanding_context() -> Optional[str]:
 
 
 
-def get_recent_conversation_context(chat_room: str, limit: int = 3) -> list[dict]:
+def get_recent_conversation_context(chat_room: str, limit: int = 5) -> list[dict]:
     """
     최근 메시지 맥락을 조회하여 분류 정확도 향상
     
     Args:
         chat_room: 채팅방 이름
-        limit: 조회할 메시지 수 (기본 3개)
+        limit: 조회할 메시지 수 (기본 5개)
     
     Returns:
         최근 메시지 리스트 [{"sender_type": "customer", "text": "..."}, ...]
@@ -150,16 +150,24 @@ EVENT_CLASSIFICATION_SYSTEM = """당신은 병원 CS 메시지 분류 전문가�
 - summary: 핵심 내용 1줄 요약 (20자 이내)
 - confidence: 분류 확신도 (0.0~1.0)
 
-Intent (의도) - 10가지 중 선택:
+Intent (의도) - 14가지 중 선택:
+
+[답변 필요 - needs_reply=true]
 - inquiry_status: 상태/진행 확인 문의 (예: "발송됐나요?", "처리됐나요?", "언제 되나요?")
 - request_action: 작업 요청 (예: "해주세요", "부탁드립니다", "진행해주세요")
 - request_change: 변경/수정 요청 (예: "수정해주세요", "변경 부탁드립니다", "취소해주세요")
 - complaint: 불만/클레임 (예: "왜 안 되는 거죠?", "문제가 있어요", "이게 뭐예요")
 - question_how: 방법/사용법 문의 (예: "어떻게 해요?", "방법이 뭐예요?")
 - question_when: 일정/시간 문의 (예: "언제 가능해요?", "시간이 어떻게 되나요?")
+- follow_up: 이전 요청에 대한 추가 정보 제공 (예: "아까 말씀드린 건 이거예요", "추가로 보내드려요")
+
+[답변 불필요 - needs_reply=false]
 - provide_info: 정보/자료 제공 (예: "사진 보내드립니다", "자료입니다", 파일 전송)
 - acknowledgment: 확인/동의 (예: "네", "알겠습니다", "확인했습니다", "감사합니다")
 - greeting: 인사 (예: "안녕하세요", "수고하세요")
+- internal_discussion: 병원 스태프끼리 대화 (예: "과장님 이거 확인해주세요", "내가 할게", 스태프 간 호칭 사용)
+- reaction: 단순 리액션 (예: "ㅎㅎ", "ㅋㅋ", "👍", "ㅇㅇ", 이모지만 있는 경우)
+- confirmation_received: 직원 안내 완료 후 고객 확인 (예: 직원이 "보내드렸습니다" 후 → "감사합니다!", "알겠습니다~")
 - other: 위에 해당하지 않는 기타
 
 Topic 목록:
@@ -174,9 +182,12 @@ Topic 목록:
 - 인사/감사
 
 needs_reply 판단 기준:
-- true: inquiry_status, request_action, request_change, complaint, question_how, question_when (답변 필요)
-- false: provide_info, acknowledgment, greeting, other (답변 불필요 또는 선택적)
-- 맥락 고려: 이전 대화 흐름에서 추가 조치가 필요한지 판단
+- true: inquiry_status, request_action, request_change, complaint, question_how, question_when, follow_up (답변 필요)
+- false: provide_info, acknowledgment, greeting, internal_discussion, reaction, confirmation_received, other (답변 불필요)
+- 맥락 고려: 이전 대화 흐름을 보고 판단. 특히:
+  * 고객 메시지가 연속되고 스태프 간 호칭/업무 지시가 있으면 → internal_discussion
+  * 직원이 안내 완료 후 고객의 "감사", "알겠습니다" → confirmation_received
+  * 판단이 애매하면 needs_reply=true (응대 누락 방지 우선)
 
 반드시 유효한 JSON만 출력하세요. 설명 없이 JSON만 출력합니다."""
 
