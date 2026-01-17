@@ -301,6 +301,12 @@ def process_event(db: Session, event: MessageEvent):
     """Process a single event"""
     logger.info(f"Processing event {event.event_id}: {event.chat_room} - {event.sender_name}")
 
+    # Skip debug/test data from Android app parse failures
+    if event.chat_room and event.chat_room.startswith("[DEBUG]"):
+        logger.info(f"Skipping debug event {event.event_id}")
+        event.ingest_status = "skipped"
+        return
+
     try:
         # Classify event with LLM (only for customer messages)
         classification = {}
