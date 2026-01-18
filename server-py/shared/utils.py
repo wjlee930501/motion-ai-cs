@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional, Tuple
 import pytz
 
+from .constants import SKIP_LLM_PATTERNS, get_needs_reply
+
 KST = pytz.timezone("Asia/Seoul")
 
 
@@ -135,38 +137,35 @@ def should_escalate_to_sonnet(text: str, haiku_confidence: Optional[float] = Non
     return False
 
 
-# Skip LLM classification for simple messages (acknowledgments that don't need reply)
-SKIP_LLM_PATTERNS = [
-    # 감사 표현
-    r"^(아\s*)?네?\s*감사합니다[.!~]*$",
-    r"^감사드려요[.!~]*$",
-    r"^감사해요[.!~]*$",
-    r"^고마워요[.!~]*$",
-    r"^고맙습니다[.!~]*$",
-    # 확인/동의 표현
-    r"^(아\s*)?(네|넵|넹|네네)[.!~]*$",
-    r"^알겠습니다[.!~]*$",
-    r"^알겠어요[.!~]*$",
-    r"^확인했습니다[.!~]*$",
-    r"^확인했어요[.!~]*$",
-    r"^확인됐습니다[.!~]*$",
-    # 짧은 응답
-    r"^ㅇㅇ$",
-    r"^ㅋㅋ+$",
-    r"^ㅎㅎ+$",
-    r"^ㅇㅋ$",
-    r"^오키$",
-    r"^오케이$",
-    r"^ok$",
-]
-
-
-def should_skip_llm(text: str) -> bool:
+def match_skip_pattern(text: str) -> Tuple[bool, Optional[str]]:
     """
-    Check if message should skip LLM classification (simple greetings/acknowledgments).
+    Check if message matches a skip pattern and return the matched intent.
+    
+    Args:
+        text: Message text
+        
+    Returns:
+        (matched, intent): 
+        - (True, "acknowledgment") if matched acknowledgment pattern
+        - (True, "reaction") if matched reaction pattern
+        - (False, None) if no match
     """
     text_stripped = text.strip()
-    for pattern in SKIP_LLM_PATTERNS:
-        if re.match(pattern, text_stripped, re.IGNORECASE):
-            return True
-    return False
+    
+    for intent, patterns in SKIP_LLM_PATTERNS.items():
+        for pattern in patterns:
+            if re.match(pattern, text_stripped, re.IGNORECASE):
+                return True, intent
+    
+    return False, None
+
+
+# Legacy function for backward compatibility
+def should_skip_llm(text: str) -> bool:
+    """
+    Check if message should skip LLM classification.
+    
+    DEPRECATED: Use match_skip_pattern() instead to get the intent.
+    """
+    matched, _ = match_skip_pattern(text)
+    return matched

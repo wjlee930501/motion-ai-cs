@@ -9,7 +9,8 @@ import re
 from typing import Optional
 
 from shared.config import get_settings
-from shared.utils import should_escalate_to_sonnet, should_skip_llm
+from shared.utils import should_escalate_to_sonnet, match_skip_pattern
+from shared.constants import get_needs_reply, build_intent_prompt_section, build_needs_reply_guide
 from shared.database import get_db
 from shared.models import CSUnderstanding
 
@@ -70,8 +71,6 @@ def get_cs_understanding_context() -> Optional[str]:
     return None
 
 
-
-
 def get_recent_conversation_context(chat_room: str, limit: int = 5) -> list[dict]:
     """
     최근 메시지 맥락을 조회하여 분류 정확도 향상
@@ -112,6 +111,7 @@ def get_recent_conversation_context(chat_room: str, limit: int = 5) -> list[dict
         print(f"[LLM] Failed to load conversation context: {e}")
         return []
 
+
 def build_classification_prompt(base_prompt: str) -> str:
     """
     기본 프롬프트에 CSUnderstanding 컨텍스트를 추가
@@ -138,39 +138,8 @@ def build_classification_prompt(base_prompt: str) -> str:
 
 
 # System prompts
-EVENT_CLASSIFICATION_SYSTEM = """당신은 병원 CS 메시지 분류 전문가입니다.
-카카오톡 메시지를 분석하여 JSON 형식으로 분류 결과를 반환합니다.
-
-분류 기준:
-- topic: 메시지의 주제 (아래 목록 중 선택)
-- urgency: 긴급도 (critical/high/medium/low)
-- sentiment: 감정 (positive/neutral/negative/angry)
-- intent: 의도 (아래 4가지 중 선택)
-- needs_reply: 답변이 필요한 메시지인지 (true/false)
-- summary: 핵심 내용 1줄 요약 (20자 이내)
-- confidence: 분류 확신도 (0.0~1.0)
-
-Intent (의도) - 14가지 중 선택:
-
-[답변 필요 - needs_reply=true]
-- inquiry_status: 상태/진행 확인 문의 (예: "발송됐나요?", "처리됐나요?", "언제 되나요?")
-- request_action: 작업 요청 (예: "해주세요", "부탁드립니다", "진행해주세요")
-- request_change: 변경/수정 요청 (예: "수정해주세요", "변경 부탁드립니다", "취소해주세요")
-- complaint: 불만/클레임 (예: "왜 안 되는 거죠?", "문제가 있어요", "이게 뭐예요")
-- question_how: 방법/사용법 문의 (예: "어떻게 해요?", "방법이 뭐예요?")
-- question_when: 일정/시간 문의 (예: "언제 가능해요?", "시간이 어떻게 되나요?")
-- follow_up: 이전 요청에 대한 추가 정보 제공 (예: "아까 말씀드린 건 이거예요", "추가로 보내드려요")
-
-[답변 불필요 - needs_reply=false]
-- provide_info: 정보/자료 제공 (예: "사진 보내드립니다", "자료입니다", 파일 전송)
-- acknowledgment: 확인/동의 (예: "네", "알겠습니다", "확인했습니다", "감사합니다")
-- greeting: 인사 (예: "안녕하세요", "수고하세요")
-- internal_discussion: 병원 스태프끼리 대화 (예: "과장님 이거 확인해주세요", "내가 할게", 스태프 간 호칭 사용)
-- reaction: 단순 리액션 (예: "ㅎㅎ", "ㅋㅋ", "👍", "ㅇㅇ", 이모지만 있는 경우)
-- confirmation_received: 직원 안내 완료 후 고객 확인 (예: 직원이 "보내드렸습니다" 후 → "감사합니다!", "알겠습니다~")
-- other: 위에 해당하지 않는 기타
-
-Topic 목록:
+# Topic 목록 (상수)
+TOPIC_LIST = """Topic 목록:
 - 발송/전송 문제
 - 예약 관련
 - 결제/정산
@@ -179,17 +148,37 @@ Topic 목록:
 - 계정/로그인
 - 리뷰 관련
 - 기타 문의
-- 인사/감사
+- 인사/감사"""
 
-needs_reply 판단 기준:
-- true: inquiry_status, request_action, request_change, complaint, question_how, question_when, follow_up (답변 필요)
-- false: provide_info, acknowledgment, greeting, internal_discussion, reaction, confirmation_received, other (답변 불필요)
-- 맥락 고려: 이전 대화 흐름을 보고 판단. 특히:
-  * 고객 메시지가 연속되고 스태프 간 호칭/업무 지시가 있으면 → internal_discussion
-  * 직원이 안내 완료 후 고객의 "감사", "알겠습니다" → confirmation_received
-  * 판단이 애매하면 needs_reply=true (응대 누락 방지 우선)
+
+def build_event_classification_system() -> str:
+    """동적으로 분류 시스템 프롬프트 생성 (Single Source of Truth)"""
+    intent_section = build_intent_prompt_section()
+    needs_reply_guide = build_needs_reply_guide()
+    
+    return f"""당신은 병원 CS 메시지 분류 전문가입니다.
+카카오톡 메시지를 분석하여 JSON 형식으로 분류 결과를 반환합니다.
+
+분류 기준:
+- topic: 메시지의 주제 (아래 목록 중 선택)
+- urgency: 긴급도 (critical/high/medium/low)
+- sentiment: 감정 (positive/neutral/negative/angry)
+- intent: 의도 (아래 목록 중 선택)
+- needs_reply: 답변이 필요한 메시지인지 (true/false)
+- summary: 핵심 내용 1줄 요약 (20자 이내)
+- confidence: 분류 확신도 (0.0~1.0)
+
+{intent_section}
+
+{TOPIC_LIST}
+
+{needs_reply_guide}
 
 반드시 유효한 JSON만 출력하세요. 설명 없이 JSON만 출력합니다."""
+
+
+# 프롬프트 캐싱 (모듈 로드 시 1회 생성)
+EVENT_CLASSIFICATION_SYSTEM = build_event_classification_system()
 
 
 TICKET_SUMMARY_SYSTEM = """당신은 병원 CS 티켓 요약 전문가입니다.
@@ -252,14 +241,15 @@ def classify_event(
     Returns:
         tuple: (classification_result, model_used)
     """
-    # Skip simple messages (greetings, acknowledgments - no reply needed)
-    if should_skip_llm(text):
+    # Skip simple messages - 패턴 매칭으로 빠르게 처리
+    matched, matched_intent = match_skip_pattern(text)
+    if matched and matched_intent:
         return {
             "topic": "인사/감사",
             "urgency": "low",
-            "sentiment": "neutral",
-            "intent": "other",
-            "needs_reply": False,  # Simple acknowledgments don't need a reply
+            "sentiment": "positive" if matched_intent == "acknowledgment" else "neutral",
+            "intent": matched_intent,  # 실제 매칭된 intent 사용 (acknowledgment, reaction 등)
+            "needs_reply": get_needs_reply(matched_intent),  # constants에서 일관되게 가져옴
             "summary": text[:20],
             "confidence": 1.0
         }, "skip"
@@ -316,9 +306,10 @@ def classify_event(
                 "confidence": 0.5
             }
 
-        # Ensure needs_reply is set (default to True if not provided by LLM)
+        # Ensure needs_reply is set - intent 기반으로 검증
         if "needs_reply" not in result:
-            result["needs_reply"] = True
+            intent = result.get("intent", "other")
+            result["needs_reply"] = get_needs_reply(intent)
 
         # Re-escalate if low confidence and was Haiku
         if model == settings.anthropic_model_default:
