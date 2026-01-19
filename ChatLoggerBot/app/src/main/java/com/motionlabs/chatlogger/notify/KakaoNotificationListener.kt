@@ -13,6 +13,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class KakaoNotificationListener : NotificationListenerService() {
@@ -22,6 +24,7 @@ class KakaoNotificationListener : NotificationListenerService() {
         private const val KAKAO_PACKAGE = "com.kakao.talk"
         private const val DEDUP_TTL_MS = 10_000L  // 10초 내 같은 메시지만 중복 처리
         private const val MAX_PROCESSED_CACHE = 500  // 메모리 과부하 방지
+        private const val DISMISS_INTERVAL_MS = 60 * 60 * 1000L  // 1시간
         var webSocketServer: WebSocketServer? = null
     }
 
@@ -32,8 +35,7 @@ class KakaoNotificationListener : NotificationListenerService() {
     private lateinit var settingsManager: SettingsManager
 
     // 순차 처리를 위한 Channel (빠른 알림도 순서대로 처리)
-    // StatusBarNotification을 전달하여 처리 후 dismiss 가능
-    private val notificationChannel = Channel<StatusBarNotification>(Channel.UNLIMITED)
+    private val notificationChannel = Channel<Notification>(Channel.UNLIMITED)
 
     // 이미 처리한 메시지 추적 (중복 방지) - key: messageKey, value: timestamp
     private val processedMessages = LinkedHashMap<String, Long>()
@@ -69,6 +71,9 @@ class KakaoNotificationListener : NotificationListenerService() {
 
         // 순차 처리 시작 - Channel에서 알림을 하나씩 꺼내 처리
         startNotificationProcessor()
+
+        // 주기적 알림 정리 시작 (1시간마다)
+        startPeriodicNotificationCleanup()
     }
 
     /**
@@ -77,13 +82,53 @@ class KakaoNotificationListener : NotificationListenerService() {
      */
     private fun startNotificationProcessor() {
         serviceScope.launch {
-            for (sbn in notificationChannel) {
+            for (notification in notificationChannel) {
                 try {
-                    processNotificationInternal(sbn)
+                    processNotificationInternal(notification)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in notification processor", e)
                 }
             }
+        }
+    }
+
+    /**
+     * 주기적으로 쌓인 카카오톡 알림을 정리 (1시간마다)
+     * 알림이 너무 많이 쌓이면 신규 알림이 안 오는 문제 방지
+     */
+    private fun startPeriodicNotificationCleanup() {
+        serviceScope.launch {
+            while (isActive) {
+                delay(DISMISS_INTERVAL_MS)
+
+                if (settingsManager.autoDismissNotifications) {
+                    dismissAllKakaoNotifications()
+                }
+            }
+        }
+    }
+
+    /**
+     * 모든 카카오톡 알림을 dismiss
+     */
+    private fun dismissAllKakaoNotifications() {
+        try {
+            val activeNotifications = getActiveNotifications()
+            val kakaoNotifications = activeNotifications?.filter { it.packageName == KAKAO_PACKAGE } ?: emptyList()
+
+            if (kakaoNotifications.isNotEmpty()) {
+                Log.d(TAG, "Dismissing ${kakaoNotifications.size} KakaoTalk notifications (periodic cleanup)")
+                for (sbn in kakaoNotifications) {
+                    try {
+                        cancelNotification(sbn.key)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to dismiss notification: ${e.message}")
+                    }
+                }
+                Log.d(TAG, "Periodic notification cleanup completed")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during periodic notification cleanup", e)
         }
     }
 
@@ -95,17 +140,14 @@ class KakaoNotificationListener : NotificationListenerService() {
         Log.d(TAG, "KakaoTalk notification received - queuing for processing")
         // Channel에 넣어서 순차 처리 (블로킹 없음)
         serviceScope.launch {
-            notificationChannel.send(sbn)
+            notificationChannel.send(sbn.notification)
         }
     }
 
     /**
      * 알림을 처리하고 모든 메시지를 파싱 (순차 처리용)
      */
-    private suspend fun processNotificationInternal(sbn: StatusBarNotification) {
-        val notification = sbn.notification
-        var shouldDismiss = false
-
+    private suspend fun processNotificationInternal(notification: Notification) {
         try {
             val parseResult = parser.parseKakaoNotificationAll(notification)
 
@@ -125,8 +167,6 @@ class KakaoNotificationListener : NotificationListenerService() {
                         Log.e(TAG, "Error sending debug info", e)
                     }
                 }
-                // 파싱 실패해도 알림은 dismiss (쌓이는 것 방지)
-                shouldDismiss = true
                 return
             }
 
@@ -177,30 +217,8 @@ class KakaoNotificationListener : NotificationListenerService() {
                 // WebSocket으로 브로드캐스트
                 broadcastToWebSocket(data)
             }
-
-            // 메시지 처리 완료 - dismiss 대상
-            shouldDismiss = true
         } catch (e: Exception) {
             Log.e(TAG, "Error processing notification", e)
-            // 에러 발생해도 알림은 dismiss (무한 재처리 방지)
-            shouldDismiss = true
-        } finally {
-            // 알림 자동 dismiss (설정이 켜져 있을 때만)
-            if (shouldDismiss && settingsManager.autoDismissNotifications) {
-                dismissNotification(sbn)
-            }
-        }
-    }
-
-    /**
-     * 처리 완료된 알림을 dismiss하여 알림 쌓임 방지
-     */
-    private fun dismissNotification(sbn: StatusBarNotification) {
-        try {
-            cancelNotification(sbn.key)
-            Log.d(TAG, "Dismissed notification: ${sbn.key}")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to dismiss notification: ${e.message}")
         }
     }
 
@@ -292,7 +310,7 @@ class KakaoNotificationListener : NotificationListenerService() {
                 if (kakaoNotifications.isNotEmpty()) {
                     Log.d(TAG, "Processing ${kakaoNotifications.size} pending KakaoTalk notifications")
                     for (sbn in kakaoNotifications) {
-                        notificationChannel.send(sbn)
+                        notificationChannel.send(sbn.notification)
                     }
                 }
             } catch (e: Exception) {
