@@ -16,6 +16,7 @@ class SettingsManager(context: Context) {
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_BACKEND_ENABLED = "backend_enabled"
         private const val KEY_HEARTBEAT_INTERVAL = "heartbeat_interval"
+        private const val KEY_AUTO_DISMISS_NOTIFICATIONS = "auto_dismiss_notifications"
 
         // Default values
         const val DEFAULT_BACKEND_URL = "http://192.168.1.100:8001"
@@ -81,6 +82,15 @@ class SettingsManager(context: Context) {
         set(value) = prefs.edit().putInt(KEY_HEARTBEAT_INTERVAL, value).apply()
 
     /**
+     * Whether to automatically dismiss KakaoTalk notifications after processing.
+     * This prevents notification buildup which can block new notifications.
+     * Default: true (enabled)
+     */
+    var autoDismissNotifications: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_DISMISS_NOTIFICATIONS, true)
+        set(value) = prefs.edit().putBoolean(KEY_AUTO_DISMISS_NOTIFICATIONS, value).apply()
+
+    /**
      * Full URL for events endpoint
      */
     val eventsUrl: String
@@ -102,7 +112,7 @@ class SettingsManager(context: Context) {
      * Check if backend is configured (not using defaults)
      */
     fun isConfigured(): Boolean {
-        return backendUrl != DEFAULT_BACKEND_URL || deviceKey != DEFAULT_DEVICE_KEY
+        return backendUrl \!= DEFAULT_BACKEND_URL || deviceKey \!= DEFAULT_DEVICE_KEY
     }
 
     private fun generateDeviceId(): String {

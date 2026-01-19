@@ -32,7 +32,8 @@ class KakaoNotificationListener : NotificationListenerService() {
     private lateinit var settingsManager: SettingsManager
 
     // 순차 처리를 위한 Channel (빠른 알림도 순서대로 처리)
-    private val notificationChannel = Channel<Notification>(Channel.UNLIMITED)
+    // StatusBarNotification을 전달하여 처리 후 dismiss 가능
+    private val notificationChannel = Channel<StatusBarNotification>(Channel.UNLIMITED)
 
     // 이미 처리한 메시지 추적 (중복 방지) - key: messageKey, value: timestamp
     private val processedMessages = LinkedHashMap<String, Long>()
@@ -76,9 +77,9 @@ class KakaoNotificationListener : NotificationListenerService() {
      */
     private fun startNotificationProcessor() {
         serviceScope.launch {
-            for (notification in notificationChannel) {
+            for (sbn in notificationChannel) {
                 try {
-                    processNotificationInternal(notification)
+                    processNotificationInternal(sbn)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in notification processor", e)
                 }
@@ -94,14 +95,17 @@ class KakaoNotificationListener : NotificationListenerService() {
         Log.d(TAG, "KakaoTalk notification received - queuing for processing")
         // Channel에 넣어서 순차 처리 (블로킹 없음)
         serviceScope.launch {
-            notificationChannel.send(sbn.notification)
+            notificationChannel.send(sbn)
         }
     }
 
     /**
      * 알림을 처리하고 모든 메시지를 파싱 (순차 처리용)
      */
-    private suspend fun processNotificationInternal(notification: Notification) {
+    private suspend fun processNotificationInternal(sbn: StatusBarNotification) {
+        val notification = sbn.notification
+        var shouldDismiss = false
+
         try {
             val parseResult = parser.parseKakaoNotificationAll(notification)
 
@@ -121,6 +125,8 @@ class KakaoNotificationListener : NotificationListenerService() {
                         Log.e(TAG, "Error sending debug info", e)
                     }
                 }
+                // 파싱 실패해도 알림은 dismiss (쌓이는 것 방지)
+                shouldDismiss = true
                 return
             }
 
@@ -171,8 +177,30 @@ class KakaoNotificationListener : NotificationListenerService() {
                 // WebSocket으로 브로드캐스트
                 broadcastToWebSocket(data)
             }
+
+            // 메시지 처리 완료 - dismiss 대상
+            shouldDismiss = true
         } catch (e: Exception) {
             Log.e(TAG, "Error processing notification", e)
+            // 에러 발생해도 알림은 dismiss (무한 재처리 방지)
+            shouldDismiss = true
+        } finally {
+            // 알림 자동 dismiss (설정이 켜져 있을 때만)
+            if (shouldDismiss && settingsManager.autoDismissNotifications) {
+                dismissNotification(sbn)
+            }
+        }
+    }
+
+    /**
+     * 처리 완료된 알림을 dismiss하여 알림 쌓임 방지
+     */
+    private fun dismissNotification(sbn: StatusBarNotification) {
+        try {
+            cancelNotification(sbn.key)
+            Log.d(TAG, "Dismissed notification: ${sbn.key}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to dismiss notification: ${e.message}")
         }
     }
 
@@ -264,7 +292,7 @@ class KakaoNotificationListener : NotificationListenerService() {
                 if (kakaoNotifications.isNotEmpty()) {
                     Log.d(TAG, "Processing ${kakaoNotifications.size} pending KakaoTalk notifications")
                     for (sbn in kakaoNotifications) {
-                        notificationChannel.send(sbn.notification)
+                        notificationChannel.send(sbn)
                     }
                 }
             } catch (e: Exception) {
