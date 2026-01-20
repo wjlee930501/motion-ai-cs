@@ -25,7 +25,15 @@ class KakaoNotificationListener : NotificationListenerService() {
         private const val DEDUP_TTL_MS = 10_000L  // 10초 내 같은 메시지만 중복 처리
         private const val MAX_PROCESSED_CACHE = 500  // 메모리 과부하 방지
         private const val DISMISS_INTERVAL_MS = 60 * 60 * 1000L  // 1시간
+        const val ACTION_DISMISS_ALL = "com.motionlabs.chatlogger.DISMISS_ALL_NOTIFICATIONS"
         var webSocketServer: WebSocketServer? = null
+
+        @Volatile
+        private var instance: KakaoNotificationListener? = null
+
+        fun dismissAllNow() {
+            instance?.dismissAllNotifications()
+        }
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -61,8 +69,18 @@ class KakaoNotificationListener : NotificationListenerService() {
         }
     }
 
+    private val dismissReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            if (intent?.action == ACTION_DISMISS_ALL) {
+                Log.d(TAG, "Received dismiss all broadcast")
+                dismissAllNotifications()
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
+        instance = this
         database = AppDatabase.getDatabase(this)
         parser = NotificationParser()
         backendClient = BackendApiClient.getInstance(this)
@@ -74,6 +92,13 @@ class KakaoNotificationListener : NotificationListenerService() {
 
         // 주기적 알림 정리 시작 (1시간마다)
         startPeriodicNotificationCleanup()
+
+        // Dismiss broadcast receiver 등록
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(dismissReceiver, android.content.IntentFilter(ACTION_DISMISS_ALL), RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(dismissReceiver, android.content.IntentFilter(ACTION_DISMISS_ALL))
+        }
     }
 
     /**
@@ -102,27 +127,26 @@ class KakaoNotificationListener : NotificationListenerService() {
                 delay(DISMISS_INTERVAL_MS)
 
                 if (settingsManager.autoDismissNotifications) {
-                    dismissAllKakaoNotifications()
+                    dismissAllNotifications()
                 }
             }
         }
     }
 
     /**
-     * 모든 카카오톡 알림을 dismiss
+     * 모든 알림을 dismiss (알림 과다 쌓임 방지)
      */
-    private fun dismissAllKakaoNotifications() {
+    private fun dismissAllNotifications() {
         try {
             val activeNotifications = getActiveNotifications()
-            val kakaoNotifications = activeNotifications?.filter { it.packageName == KAKAO_PACKAGE } ?: emptyList()
 
-            if (kakaoNotifications.isNotEmpty()) {
-                Log.d(TAG, "Dismissing ${kakaoNotifications.size} KakaoTalk notifications (periodic cleanup)")
-                for (sbn in kakaoNotifications) {
+            if (!activeNotifications.isNullOrEmpty()) {
+                Log.d(TAG, "Dismissing ${activeNotifications.size} notifications (periodic cleanup)")
+                for (sbn in activeNotifications) {
                     try {
                         cancelNotification(sbn.key)
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to dismiss notification: ${e.message}")
+                        Log.w(TAG, "Failed to dismiss notification [${sbn.packageName}]: ${e.message}")
                     }
                 }
                 Log.d(TAG, "Periodic notification cleanup completed")
@@ -326,5 +350,15 @@ class KakaoNotificationListener : NotificationListenerService() {
         synchronized(processedMessages) {
             processedMessages.clear()
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(dismissReceiver)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unregister dismiss receiver: ${e.message}")
+        }
+        instance = null
     }
 }

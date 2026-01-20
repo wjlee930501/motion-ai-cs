@@ -112,7 +112,7 @@ class SettingsManager(context: Context) {
      * Check if backend is configured (not using defaults)
      */
     fun isConfigured(): Boolean {
-        return backendUrl \!= DEFAULT_BACKEND_URL || deviceKey \!= DEFAULT_DEVICE_KEY
+        return backendUrl != DEFAULT_BACKEND_URL || deviceKey != DEFAULT_DEVICE_KEY
     }
 
     private fun generateDeviceId(): String {
