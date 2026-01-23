@@ -284,8 +284,8 @@ async def list_tickets(
     priority: Optional[str] = Query(None, description="Comma-separated priorities"),
     clinic_key: Optional[str] = None,
     sla_breached: Optional[bool] = None,
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: Optional[int] = Query(None, ge=1),
+    limit: Optional[int] = Query(None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -326,8 +326,12 @@ async def list_tickets(
         Ticket.updated_at.desc()
     )
 
-    # Paginate
-    tickets = query.offset((page - 1) * limit).limit(limit).all()
+    # Paginate (only if limit is specified)
+    if limit:
+        p = page or 1
+        tickets = query.offset((p - 1) * limit).limit(limit).all()
+    else:
+        tickets = query.all()
 
     # Build response with SLA remaining calculation
     ticket_items = []

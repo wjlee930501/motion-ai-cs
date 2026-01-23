@@ -7,7 +7,6 @@ import { useAuthStore } from '@/stores/authStore'
 import ticketApi from '@/services/ticketApi'
 import { Ticket, TicketFilters, TicketUpdate } from '@/types/ticket.types'
 
-import { Button } from '@/components/ui'
 import {
   Header,
   TicketList,
@@ -16,8 +15,6 @@ import {
 import { LabModal, TemplatesModal } from '@/components/modals'
 
 const DEFAULT_FILTERS: TicketFilters = {
-  page: 1,
-  limit: 20,
 }
 
 // Reply filter type
@@ -28,7 +25,7 @@ export function TicketsPageNew() {
   const queryClient = useQueryClient()
   const { user, logout, checkAuth, isAuthenticated } = useAuthStore()
 
-  const [filters, setFilters] = useState<TicketFilters>(DEFAULT_FILTERS)
+  const [filters] = useState<TicketFilters>(DEFAULT_FILTERS)
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
   const [replyFilter, setReplyFilter] = useState<ReplyFilter>('all')
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
@@ -312,34 +309,6 @@ export function TicketsPageNew() {
               total={filteredTickets.length}
             />
 
-            {/* Pagination */}
-            {ticketsData && ticketsData.total > (filters.limit || 20) && (
-              <div className="mt-6 mb-3 flex justify-center items-center gap-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={filters.page === 1}
-                  onClick={() => setFilters(prev => ({ ...prev, page: (prev.page || 1) - 1 }))}
-                  className="shadow-sm hover:shadow-md transition-shadow"
-                >
-                  이전
-                </Button>
-                <div className="px-4 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
-                  <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                    {filters.page} / {Math.ceil(ticketsData.total / (filters.limit || 20))}
-                  </span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={(filters.page || 1) >= Math.ceil(ticketsData.total / (filters.limit || 20))}
-                  onClick={() => setFilters(prev => ({ ...prev, page: (prev.page || 1) + 1 }))}
-                  className="shadow-sm hover:shadow-md transition-shadow"
-                >
-                  다음
-                </Button>
-              </div>
-            )}
           </div>
         </div>
 
