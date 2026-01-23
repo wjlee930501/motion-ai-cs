@@ -358,7 +358,7 @@ async def list_tickets(
             sla_remaining_sec=sla_remaining
         ))
 
-    return TicketListResponse(ok=True, tickets=ticket_items, total=total, page=page)
+    return TicketListResponse(ok=True, tickets=ticket_items, total=total, page=page or 1)
 
 
 @app.get("/v1/tickets/{ticket_id}", response_model=TicketResponse)
