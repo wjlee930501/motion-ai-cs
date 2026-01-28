@@ -1,6 +1,13 @@
 import { create } from 'zustand'
+import { AxiosError } from 'axios'
 import { User } from '@/types/ticket.types'
 import ticketApi from '@/services/ticketApi'
+
+interface ApiErrorResponse {
+  error?: {
+    message?: string
+  }
+}
 
 interface AuthState {
   user: User | null
@@ -43,8 +50,9 @@ export const useAuthStore = create<AuthState>((set) => ({
         })
         return false
       }
-    } catch (error: any) {
-      const message = error.response?.data?.error?.message || '로그인에 실패했습니다.'
+    } catch (error) {
+      const axiosError = error as AxiosError<ApiErrorResponse>
+      const message = axiosError.response?.data?.error?.message || '로그인에 실패했습니다.'
       set({
         error: message,
         isLoading: false,

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import {
@@ -6,14 +6,13 @@ import {
   Clock,
   AlertTriangle,
   Tag,
-  Zap,
-  User,
-  CheckCircle2,
-  Circle
+  User
 } from 'lucide-react'
 import clsx from 'clsx'
-import { Ticket, TicketEvent } from '../../types/ticket.types'
-import { isStaffMember, getDisplayName } from '../../utils/senderUtils'
+import { Ticket, TicketEvent } from '@/types/ticket.types'
+import { isStaffMember, getDisplayName } from '@/utils/senderUtils'
+import { formatMessageTime } from '@/utils/ticketUtils'
+import { STATUS_CONFIG, PRIORITY_COLORS, STATUS_OPTIONS, PRIORITY_OPTIONS } from '@/constants'
 
 interface TicketDetailProps {
   ticket: Ticket | null
@@ -22,72 +21,6 @@ interface TicketDetailProps {
   onPriorityChange: (ticketId: string, priority: string) => void
   onNeedsReplyChange?: (ticketId: string, needsReply: boolean) => void
   isLoading?: boolean
-}
-
-const statusConfig = {
-  onboarding: {
-    label: '온보딩',
-    color: 'text-blue-700 dark:text-blue-300',
-    bg: 'bg-blue-100 dark:bg-blue-900/40',
-    icon: Circle
-  },
-  stable: {
-    label: '안정기',
-    color: 'text-emerald-700 dark:text-emerald-300',
-    bg: 'bg-emerald-100 dark:bg-emerald-900/40',
-    icon: CheckCircle2
-  },
-  churn_risk: {
-    label: '이탈우려',
-    color: 'text-orange-700 dark:text-orange-300',
-    bg: 'bg-orange-100 dark:bg-orange-900/40',
-    icon: AlertTriangle
-  },
-  important: {
-    label: '중요',
-    color: 'text-purple-700 dark:text-purple-300',
-    bg: 'bg-purple-100 dark:bg-purple-900/40',
-    icon: Zap
-  },
-}
-
-const priorityColors = {
-  urgent: 'text-red-600 bg-red-100 dark:bg-red-900/40 dark:text-red-400',
-  high: 'text-orange-600 bg-orange-100 dark:bg-orange-900/40 dark:text-orange-400',
-  normal: 'text-slate-600 bg-slate-100 dark:bg-slate-700 dark:text-slate-400',
-  low: 'text-slate-400 bg-slate-50 dark:bg-slate-800 dark:text-slate-500',
-}
-
-function formatMessageTime(dateString: string): string {
-  try {
-    const date = new Date(dateString)
-    const now = new Date()
-
-    // KST 기준으로 오늘인지 확인
-    const kstOptions = { timeZone: 'Asia/Seoul' }
-    const dateKST = date.toLocaleDateString('ko-KR', kstOptions)
-    const nowKST = now.toLocaleDateString('ko-KR', kstOptions)
-    const isToday = dateKST === nowKST
-
-    if (isToday) {
-      return date.toLocaleTimeString('ko-KR', {
-        timeZone: 'Asia/Seoul',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      })
-    }
-    return date.toLocaleString('ko-KR', {
-      timeZone: 'Asia/Seoul',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    })
-  } catch {
-    return ''
-  }
 }
 
 const TicketDetail: React.FC<TicketDetailProps> = ({
@@ -134,7 +67,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
     )
   }
 
-  const status = statusConfig[ticket.status as keyof typeof statusConfig] || statusConfig.onboarding
+  const status = STATUS_CONFIG[ticket.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.onboarding
 
   // Group messages by date (KST)
   const groupedMessages = events.reduce((acc, event) => {
@@ -200,16 +133,15 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
                   'w-full text-sm font-medium px-4 py-2.5 rounded-xl border-2 transition-all cursor-pointer shadow-sm',
                   'focus:outline-none focus:ring-4 focus:ring-brand-500/20 focus:border-brand-500',
                   'hover:shadow-md hover:scale-[1.02]',
-                  status.bg,
+                  status.bgSolid,
                   status.color,
                   'border-slate-200 dark:border-slate-700',
                   'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100'
                 )}
               >
-                <option value="onboarding">🔵 온보딩</option>
-                <option value="stable">🟢 안정기</option>
-                <option value="churn_risk">🟠 이탈우려</option>
-                <option value="important">🟣 중요</option>
+                {STATUS_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
             </div>
 
@@ -223,15 +155,14 @@ const TicketDetail: React.FC<TicketDetailProps> = ({
                   'w-full text-sm font-medium px-4 py-2.5 rounded-xl border-2 transition-all cursor-pointer shadow-sm',
                   'focus:outline-none focus:ring-4 focus:ring-brand-500/20 focus:border-brand-500',
                   'hover:shadow-md hover:scale-[1.02]',
-                  priorityColors[ticket.priority as keyof typeof priorityColors] || priorityColors.normal,
+                  PRIORITY_COLORS[ticket.priority as keyof typeof PRIORITY_COLORS] || PRIORITY_COLORS.normal,
                   'border-slate-200 dark:border-slate-700',
                   'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100'
                 )}
               >
-                <option value="urgent">🔴 긴급</option>
-                <option value="high">🟠 높음</option>
-                <option value="normal">⚪ 보통</option>
-                <option value="low">⚫ 낮음</option>
+                {PRIORITY_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
             </div>
           </div>

@@ -5,7 +5,9 @@ import { RefreshCw } from 'lucide-react'
 
 import { useAuthStore } from '@/stores/authStore'
 import ticketApi from '@/services/ticketApi'
-import { Ticket, TicketFilters, TicketUpdate } from '@/types/ticket.types'
+import { Ticket, TicketUpdate } from '@/types/ticket.types'
+import { checkNeedsReply } from '@/utils/ticketUtils'
+import { REFETCH_INTERVALS_MS } from '@/constants'
 
 import {
   Header,
@@ -14,10 +16,6 @@ import {
 } from '@/components/dashboard'
 import { LabModal, TemplatesModal } from '@/components/modals'
 
-const DEFAULT_FILTERS: TicketFilters = {
-}
-
-// Reply filter type
 type ReplyFilter = 'all' | 'needs_reply' | 'replied'
 
 export function TicketsPageNew() {
@@ -25,7 +23,6 @@ export function TicketsPageNew() {
   const queryClient = useQueryClient()
   const { user, logout, checkAuth, isAuthenticated } = useAuthStore()
 
-  const [filters] = useState<TicketFilters>(DEFAULT_FILTERS)
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
   const [replyFilter, setReplyFilter] = useState<ReplyFilter>('all')
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
@@ -73,63 +70,40 @@ export function TicketsPageNew() {
     }
   }, [selectedTicket])
 
-  // Combine filters
-  const effectiveFilters = useMemo(() => ({
-    ...filters
-  }), [filters])
-
-  // Fetch tickets with auto-refresh
   const {
     data: ticketsData,
     isLoading: isLoadingTickets,
     refetch: refetchTickets
   } = useQuery(
-    ['tickets', effectiveFilters],
-    () => ticketApi.getTickets(effectiveFilters),
+    ['tickets'],
+    () => ticketApi.getTickets(),
     {
-      refetchInterval: 10000,
+      refetchInterval: REFETCH_INTERVALS_MS.tickets,
       onSuccess: () => setLastRefresh(new Date())
     }
   )
 
-  // Fetch metrics (for future use)
-  useQuery(
-    'metrics',
-    () => ticketApi.getMetrics(),
-    { refetchInterval: 30000 }
-  )
-
-  // 회신 필요 여부 판별: LLM 분류 기반 needs_reply 필드 사용
-  // 고객 메시지 중 답변이 필요한 메시지(질문, 요청, 문의 등)만 회신 필요로 표시
-  // 인사, 감사, 단순 확인 등은 회신 필요 없음으로 분류됨
-  const needsReply = useCallback((ticket: Ticket): boolean => {
-    return ticket.needs_reply
-  }, [])
-
-  // 회신 필터 적용된 티켓 목록
   const filteredTickets = useMemo(() => {
     const tickets = ticketsData?.tickets || []
     if (replyFilter === 'all') return tickets
-    if (replyFilter === 'needs_reply') return tickets.filter(needsReply)
-    return tickets.filter(t => !needsReply(t))
-  }, [ticketsData?.tickets, replyFilter, needsReply])
+    if (replyFilter === 'needs_reply') return tickets.filter(checkNeedsReply)
+    return tickets.filter(t => !checkNeedsReply(t))
+  }, [ticketsData?.tickets, replyFilter])
 
-  // 회신 필요/완료 개수
   const needsReplyCount = useMemo(() => {
-    return (ticketsData?.tickets || []).filter(needsReply).length
-  }, [ticketsData?.tickets, needsReply])
+    return (ticketsData?.tickets || []).filter(checkNeedsReply).length
+  }, [ticketsData?.tickets])
 
   const repliedCount = useMemo(() => {
-    return (ticketsData?.tickets || []).filter(t => !needsReply(t)).length
-  }, [ticketsData?.tickets, needsReply])
+    return (ticketsData?.tickets || []).filter(t => !checkNeedsReply(t)).length
+  }, [ticketsData?.tickets])
 
-  // Fetch ticket events when selected (with auto-refresh)
   const { data: eventsData, isLoading: isLoadingEvents } = useQuery(
     ['ticketEvents', selectedTicket?.ticket_id],
     () => selectedTicket ? ticketApi.getTicketEvents(selectedTicket.ticket_id) : null,
     {
       enabled: !!selectedTicket,
-      refetchInterval: 5000, // Refresh every 5 seconds for real-time updates
+      refetchInterval: REFETCH_INTERVALS_MS.ticketEvents,
     }
   )
 

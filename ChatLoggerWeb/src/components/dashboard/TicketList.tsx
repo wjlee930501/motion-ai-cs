@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
-import { differenceInMinutes } from 'date-fns'
 import { AlertTriangle, Inbox, ChevronRight, User } from 'lucide-react'
 import clsx from 'clsx'
 import { Ticket } from '@/types/ticket.types'
 import { isStaffMember, getDisplayName } from '@/utils/senderUtils'
+import { checkNeedsReply, getWaitingTime, sortTicketsByPriority, hasSlaBreach, isUrgentTicket } from '@/utils/ticketUtils'
+import { STATUS_CONFIG, WAITING_TIME_THRESHOLDS_MIN } from '@/constants'
 
 interface TicketListProps {
   tickets: Ticket[]
@@ -11,61 +12,6 @@ interface TicketListProps {
   onSelect: (ticket: Ticket) => void
   isLoading?: boolean
   total: number
-}
-
-const statusConfig: Record<string, { label: string; color: string; bg: string; dot: string }> = {
-  onboarding: {
-    label: '온보딩',
-    color: 'text-blue-700 dark:text-blue-300',
-    bg: 'bg-blue-50 dark:bg-blue-900/20',
-    dot: 'bg-blue-500',
-  },
-  stable: {
-    label: '안정기',
-    color: 'text-emerald-700 dark:text-emerald-300',
-    bg: 'bg-emerald-50 dark:bg-emerald-900/20',
-    dot: 'bg-emerald-500',
-  },
-  churn_risk: {
-    label: '이탈우려',
-    color: 'text-orange-700 dark:text-orange-300',
-    bg: 'bg-orange-50 dark:bg-orange-900/20',
-    dot: 'bg-orange-500',
-  },
-  important: {
-    label: '중요',
-    color: 'text-purple-700 dark:text-purple-300',
-    bg: 'bg-purple-50 dark:bg-purple-900/20',
-    dot: 'bg-purple-500',
-  },
-}
-
-
-// 회신 필요 여부 확인 (LLM 분류 기반)
-// 고객 메시지 중 답변이 필요한 메시지만 회신 필요로 표시
-// 인사, 감사, 단순 확인 등은 회신 필요 없음으로 분류됨
-function checkNeedsReply(ticket: Ticket): boolean {
-  return ticket.needs_reply
-}
-
-// 대기 시간 계산 (고객 메시지 이후)
-function getWaitingTime(ticket: Ticket): { minutes: number; display: string } | null {
-  if (!checkNeedsReply(ticket)) return null
-
-  const customerMessageTime = ticket.last_inbound_at
-  if (!customerMessageTime) return null
-
-  const minutes = differenceInMinutes(Date.now(), new Date(customerMessageTime))
-
-  if (minutes < 1) {
-    return { minutes, display: '방금 전' }
-  } else if (minutes < 60) {
-    return { minutes, display: `${minutes}분 대기` }
-  } else {
-    const hours = Math.floor(minutes / 60)
-    const remainingMinutes = minutes % 60
-    return { minutes, display: `${hours}시간 ${remainingMinutes}분 대기` }
-  }
 }
 
 function TicketSkeleton() {
@@ -138,27 +84,7 @@ export function TicketList({
   isLoading = false,
   total,
 }: TicketListProps) {
-  // 정렬: 회신 필요한 방 먼저, 그 중 오래 대기한 순으로 내림차순
-  const ticketItems = useMemo(() => {
-    return [...tickets].sort((a, b) => {
-      // 1. 회신 필요 여부로 먼저 정렬 (needs_reply=true가 위로)
-      if (a.needs_reply !== b.needs_reply) {
-        return a.needs_reply ? -1 : 1
-      }
-
-      // 2. 회신 필요한 경우: 대기 시간이 긴 순서로 (오래된 것이 위로)
-      if (a.needs_reply && b.needs_reply) {
-        const aTime = a.last_inbound_at ? new Date(a.last_inbound_at).getTime() : 0
-        const bTime = b.last_inbound_at ? new Date(b.last_inbound_at).getTime() : 0
-        return aTime - bTime // 오래된 것이 위로
-      }
-
-      // 3. 회신 불필요인 경우: 최근 업데이트 순
-      const aTime = a.last_outbound_at ? new Date(a.last_outbound_at).getTime() : 0
-      const bTime = b.last_outbound_at ? new Date(b.last_outbound_at).getTime() : 0
-      return bTime - aTime // 최근 것이 위로
-    })
-  }, [tickets])
+  const ticketItems = useMemo(() => sortTicketsByPriority(tickets), [tickets])
 
   if (isLoading) {
     return (
@@ -228,11 +154,10 @@ export function TicketList({
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {ticketItems.map((ticket, index) => {
           const isSelected = selectedTicketId === ticket.ticket_id
-          const status = statusConfig[ticket.status] || statusConfig.onboarding
+          const status = STATUS_CONFIG[ticket.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.onboarding
           const needsReply = checkNeedsReply(ticket)
-          // SLA는 회신 필요한 경우에만 체크
-          const hasSLA = needsReply && (ticket.sla_breached || (ticket.sla_remaining_sec !== undefined && ticket.sla_remaining_sec < 0))
-          const isUrgent = needsReply && ticket.priority === 'urgent'
+          const hasSLA = hasSlaBreach(ticket)
+          const isUrgent = isUrgentTicket(ticket)
           const waitingTime = getWaitingTime(ticket)
           const senderName = ticket.last_message_sender
           const isStaff = senderName ? isStaffMember(senderName) : false
@@ -332,7 +257,7 @@ export function TicketList({
                         'transition-all duration-200',
                         hasSLA
                           ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 ring-2 ring-red-500/20'
-                          : waitingTime.minutes < 15
+                          : waitingTime.minutes < WAITING_TIME_THRESHOLDS_MIN.warning
                             ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300'
                             : 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300'
                       )}>
