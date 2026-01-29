@@ -4,9 +4,7 @@ import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { Bell, Settings, LogOut, Moon, Sun, Menu, X, Sparkles, ChevronDown, Search, Brain, Users, Loader2, MessageSquareText } from 'lucide-react'
 import { Button } from '../ui'
 import clsx from 'clsx'
-
-// API
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import { API_BASE_URL } from '@/constants/api.constants'
 
 interface NotificationItem {
   id: number
@@ -26,7 +24,7 @@ interface NotificationListResponse {
 
 async function fetchNotifications(): Promise<NotificationListResponse> {
   const token = localStorage.getItem('cs_token')
-  const res = await fetch(`${API_BASE}/v1/notifications`, {
+  const res = await fetch(`${API_BASE_URL}/v1/notifications`, {
     headers: { Authorization: `Bearer ${token}` }
   })
   if (!res.ok) throw new Error('Failed to fetch notifications')
@@ -35,7 +33,7 @@ async function fetchNotifications(): Promise<NotificationListResponse> {
 
 async function markNotificationRead(notificationId: number): Promise<void> {
   const token = localStorage.getItem('cs_token')
-  await fetch(`${API_BASE}/v1/notifications/${notificationId}/read`, {
+  await fetch(`${API_BASE_URL}/v1/notifications/${notificationId}/read`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` }
   })
@@ -43,7 +41,7 @@ async function markNotificationRead(notificationId: number): Promise<void> {
 
 async function markAllNotificationsRead(): Promise<void> {
   const token = localStorage.getItem('cs_token')
-  await fetch(`${API_BASE}/v1/notifications/read-all`, {
+  await fetch(`${API_BASE_URL}/v1/notifications/read-all`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` }
   })

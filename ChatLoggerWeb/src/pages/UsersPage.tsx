@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import ticketApi from '@/services/ticketApi'
-import { User, UserCreate } from '@/types/ticket.types'
+import { User, UserCreate, UserUpdate } from '@/types/ticket.types'
 import {
   Users,
   UserPlus,
@@ -63,8 +63,8 @@ export function UsersPage() {
       if (response.ok) {
         setUsers(response.users)
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error?.message || '사용자 목록을 불러오는데 실패했습니다.')
+    } catch {
+      setError('사용자 목록을 불러오는데 실패했습니다.')
     } finally {
       setIsLoading(false)
     }
@@ -86,8 +86,8 @@ export function UsersPage() {
         setShowNewUserForm(false)
         setNewUser({ email: '', password: '', name: '', role: 'member' })
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error?.message || '사용자 생성에 실패했습니다.')
+    } catch {
+      setError('사용자 생성에 실패했습니다.')
     } finally {
       setIsCreating(false)
     }
@@ -102,8 +102,8 @@ export function UsersPage() {
       if (response.ok) {
         setUsers(users.filter((u) => u.id !== userId))
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error?.message || '사용자 삭제에 실패했습니다.')
+    } catch {
+      setError('사용자 삭제에 실패했습니다.')
     }
   }
 
@@ -115,19 +115,19 @@ export function UsersPage() {
   const handleUpdateUser = async (userId: number) => {
     try {
       setError(null)
-      const updateData: any = {}
+      const updateData: UserUpdate = {}
       if (editForm.name) updateData.name = editForm.name
       if (editForm.email) updateData.email = editForm.email
       if (editForm.password) updateData.password = editForm.password
-      if (editForm.role) updateData.role = editForm.role
+      if (editForm.role) updateData.role = editForm.role as 'admin' | 'member'
 
       const response = await ticketApi.updateUser(userId, updateData)
       if (response.ok) {
         setUsers(users.map((u) => (u.id === userId ? response.user : u)))
         setEditingUserId(null)
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error?.message || '사용자 수정에 실패했습니다.')
+    } catch {
+      setError('사용자 수정에 실패했습니다.')
     }
   }
 

@@ -4,6 +4,7 @@ LLM 프롬프트 템플릿
 핵심 원칙:
 - 구조화 강제 (X) → 열린 질문 (O)
 - 특정 포맷 요구 (X) → 자유로운 정리 (O)
+- v2: JSON 구조화 출력 추가
 """
 
 SYSTEM_PROMPT = """당신은 모션랩스 CS 분석가입니다.
@@ -22,30 +23,49 @@ SYSTEM_PROMPT = """당신은 모션랩스 CS 분석가입니다.
 - 고객들의 요청 양상을 이해하는 것
 - 대화의 상호작용 패턴을 발견하는 것
 - 특히: 내부 대화 vs 문의 메시지를 구분하는 패턴 발견
+- 자동 분류 시스템이 활용할 수 있는 구조화된 패턴 추출
 
 주의사항:
 - 데이터가 적을 수 있습니다. 무리하게 패턴을 만들지 마세요.
 - 확실한 것과 추측을 구분해서 말해주세요.
-- 이전 이해가 있다면, 그것을 발전시키는 방향으로 작성하세요."""
+- 이전 이해가 있다면, 그것을 발전시키는 방향으로 작성하세요.
+- 운영자 피드백이 있다면, 반드시 반영하여 분류 기준을 개선하세요."""
+
+
+def format_feedback_patterns(patterns: list) -> str:
+    if not patterns:
+        return "- 피드백 없음"
+
+    lines = []
+    for p in patterns[:10]:
+        lines.append(f"- {p['from_intent']} → {p['to_intent']}: {p['count']}건")
+        if p.get("examples"):
+            for ex in p["examples"][:2]:
+                lines.append(f'  예시: "{ex}"')
+    return "\n".join(lines)
+
+
+from typing import Optional
 
 
 def build_user_prompt(
-    previous_understanding: str | None,
+    previous_understanding: Optional[str],
     logs_text: str,
     log_count: int,
     date_from,
-    date_to
+    date_to,
+    feedback_summary: Optional[dict] = None,
 ) -> str:
-    """사용자 프롬프트 구성"""
-
     prev_section = previous_understanding or "없음 (첫 번째 학습입니다)"
 
     if date_from and date_to:
-        date_range = f"{date_from.strftime('%Y-%m-%d')} ~ {date_to.strftime('%Y-%m-%d')}"
+        date_range = (
+            f"{date_from.strftime('%Y-%m-%d')} ~ {date_to.strftime('%Y-%m-%d')}"
+        )
     else:
         date_range = "날짜 정보 없음"
 
-    return f"""## 이전 이해
+    base_prompt = f"""## 이전 이해
 
 {prev_section}
 
@@ -58,8 +78,25 @@ def build_user_prompt(
 {logs_text}
 
 ---
+"""
 
-## 요청
+    if feedback_summary and feedback_summary.get("total", 0) > 0:
+        feedback_section = f"""
+## 운영자 피드백 (이전 학습 이후 수집)
+
+총 {feedback_summary["total"]}건의 분류 수정이 있었습니다.
+
+주요 수정 패턴:
+{format_feedback_patterns(feedback_summary.get("patterns", []))}
+
+**중요**: 위 피드백을 반영하여 분류 기준을 개선해주세요.
+오분류된 패턴을 학습하여 misclassification_learnings에 포함하세요.
+
+---
+"""
+        base_prompt += feedback_section
+
+    analysis_section = """## 요청
 
 위 대화 로그를 바탕으로 당신의 이해를 정리해주세요.
 
@@ -134,4 +171,78 @@ def build_user_prompt(
    - 더 확신하게 된 것
 
 데이터가 부족하면 부족하다고 솔직하게 말해주세요.
-무리하게 패턴을 만들 필요 없습니다."""
+무리하게 패턴을 만들 필요 없습니다.
+
+---
+
+## JSON 구조화 출력 (필수)
+
+위 분석 내용을 바탕으로, 자동 분류 시스템이 활용할 수 있는 구조화된 데이터를 추출해주세요.
+텍스트 분석 완료 후 반드시 "---JSON_OUTPUT---" 마커를 작성하고 그 다음에 JSON을 출력하세요.
+
+```json
+{
+  "version": "2.0",
+  "internal_discussion_markers": [
+    {
+      "pattern": "정규표현식 패턴 (Python re 호환)",
+      "type": "honorific|self_assign|task_mention",
+      "description": "이 패턴이 내부 대화를 나타내는 이유",
+      "confidence": 0.0-1.0,
+      "example_count": 숫자
+    }
+  ],
+  "confirmation_patterns": [
+    {
+      "trigger_message": "직원 메시지 패턴 (예: 보내드렸습니다)",
+      "closing_response": "종결 응답 패턴 (예: 감사합니다)",
+      "is_closing": true,
+      "confidence": 0.0-1.0,
+      "example_count": 숫자
+    }
+  ],
+  "skip_llm_candidates": [
+    {
+      "pattern": "정규표현식 (Python re 호환)",
+      "intent": "intent_name",
+      "needs_reply": true|false,
+      "confidence": 0.0-1.0 (0.9 이상만 포함),
+      "example_count": 숫자 (3개 이상만 포함)
+    }
+  ],
+  "new_intent_candidates": [
+    {
+      "suggested_name": "snake_case_name",
+      "description_ko": "한글 설명",
+      "examples": ["예시1", "예시2", "예시3"],
+      "parent_intent": "기존 intent 또는 null",
+      "needs_reply": true|false,
+      "frequency": 숫자 (30 이상만 포함),
+      "confidence": 0.0-1.0
+    }
+  ],
+  "topic_statistics": {
+    "발송/전송 문제": {"count": 숫자, "avg_urgency": "medium"},
+    "예약 관련": {"count": 숫자, "avg_urgency": "high"}
+  },
+  "misclassification_learnings": [
+    {
+      "original_intent": "원래 분류된 intent",
+      "corrected_intent": "수정된 intent",
+      "pattern": "해당 메시지의 특징적 패턴",
+      "lesson": "이 케이스에서 배운 분류 기준",
+      "correction_count": 숫자
+    }
+  ]
+}
+```
+
+**JSON 출력 규칙:**
+- confidence가 0.8 미만인 패턴은 skip_llm_candidates에 포함하지 마세요
+- 예시가 3개 미만인 패턴은 제외하세요
+- frequency가 30 미만인 new_intent는 제외하세요
+- 정규표현식은 Python re 모듈과 호환되는 형식으로 작성하세요
+- 데이터가 부족하면 해당 배열을 빈 배열 []로 두세요
+- JSON이 반드시 유효한 형식이어야 합니다"""
+
+    return base_prompt + analysis_section

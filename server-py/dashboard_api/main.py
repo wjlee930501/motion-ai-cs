@@ -22,6 +22,8 @@ from shared.models import (
     LearningExecution,
     Notification,
     MessageTemplate,
+    ClassificationFeedback,
+    PatternApplicationLog,
 )
 from shared.schemas import (
     LoginRequest,
@@ -54,6 +56,17 @@ from shared.schemas import (
     TemplateUpdate,
     TemplateDeleteResponse,
     TemplateCopyResponse,
+    # Learning System v2 Schemas
+    FeedbackCreate,
+    FeedbackItem,
+    FeedbackResponse,
+    FeedbackListResponse,
+    FeedbackStatsResponse,
+    PatternItem,
+    PatternListResponse,
+    PatternActionResponse,
+    PatternApplyResponse,
+    InsightsResponse,
 )
 from shared.utils import get_kst_now, calculate_sla_remaining_sec
 from shared.config import get_settings
@@ -1209,6 +1222,395 @@ async def copy_template(
     db.commit()
 
     return TemplateCopyResponse(ok=True, message="Usage count updated")
+
+
+# ============================================
+# Classification Feedback Endpoints
+# ============================================
+
+
+@app.post("/v1/feedback/classification", response_model=FeedbackResponse)
+async def submit_classification_feedback(
+    request: FeedbackCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Submit feedback for a classification correction"""
+    event = (
+        db.query(MessageEvent).filter(MessageEvent.event_id == request.event_id).first()
+    )
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "ok": False,
+                "error": {"code": "NOT_FOUND", "message": "Event not found"},
+            },
+        )
+
+    ticket_link = (
+        db.query(TicketEventLink)
+        .filter(TicketEventLink.event_id == request.event_id)
+        .first()
+    )
+    if not ticket_link:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "ok": False,
+                "error": {
+                    "code": "NO_TICKET",
+                    "message": "Event is not linked to any ticket",
+                },
+            },
+        )
+
+    annotation = (
+        db.query(LLMAnnotation)
+        .filter(
+            LLMAnnotation.target_type == "event",
+            LLMAnnotation.target_id == request.event_id,
+        )
+        .first()
+    )
+
+    original_intent = "unknown"
+    original_needs_reply = True
+    original_topic = None
+    original_confidence = None
+
+    if annotation and annotation.result:
+        original_intent = annotation.result.get("intent", "unknown")
+        original_needs_reply = annotation.result.get("needs_reply", True)
+        original_topic = annotation.result.get("topic")
+        confidence_val = annotation.result.get("confidence")
+        if confidence_val is not None:
+            original_confidence = float(confidence_val)
+
+    feedback = ClassificationFeedback(
+        event_id=request.event_id,
+        ticket_id=ticket_link.ticket_id,
+        original_intent=original_intent,
+        original_needs_reply=original_needs_reply,
+        original_topic=original_topic,
+        original_confidence=original_confidence,
+        corrected_intent=request.corrected_intent,
+        corrected_needs_reply=request.corrected_needs_reply,
+        corrected_topic=request.corrected_topic,
+        feedback_type="correction",
+        corrected_by=current_user.id,
+    )
+    db.add(feedback)
+    db.commit()
+    db.refresh(feedback)
+
+    return FeedbackResponse(ok=True, feedback=FeedbackItem.model_validate(feedback))
+
+
+@app.get("/v1/feedback/list", response_model=FeedbackListResponse)
+async def list_feedbacks(
+    limit: int = Query(50, ge=1, le=200),
+    applied: Optional[bool] = Query(None, description="Filter by applied status"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List classification feedbacks"""
+    query = db.query(ClassificationFeedback)
+
+    if applied is not None:
+        if applied:
+            query = query.filter(ClassificationFeedback.applied_to_version.isnot(None))
+        else:
+            query = query.filter(ClassificationFeedback.applied_to_version.is_(None))
+
+    total = query.count()
+    feedbacks = (
+        query.order_by(ClassificationFeedback.corrected_at.desc()).limit(limit).all()
+    )
+
+    return FeedbackListResponse(
+        ok=True,
+        feedbacks=[FeedbackItem.model_validate(f) for f in feedbacks],
+        total=total,
+    )
+
+
+@app.get("/v1/feedback/statistics", response_model=FeedbackStatsResponse)
+async def get_feedback_statistics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get feedback statistics"""
+    total = db.query(func.count(ClassificationFeedback.id)).scalar() or 0
+    pending = (
+        db.query(func.count(ClassificationFeedback.id))
+        .filter(ClassificationFeedback.applied_to_version.is_(None))
+        .scalar()
+        or 0
+    )
+    applied = total - pending
+
+    by_type = (
+        db.query(
+            ClassificationFeedback.feedback_type,
+            func.count(ClassificationFeedback.id).label("count"),
+        )
+        .group_by(ClassificationFeedback.feedback_type)
+        .all()
+    )
+
+    top_corrections = (
+        db.query(
+            ClassificationFeedback.original_intent,
+            ClassificationFeedback.corrected_intent,
+            func.count(ClassificationFeedback.id).label("count"),
+        )
+        .filter(
+            ClassificationFeedback.corrected_intent.isnot(None),
+            ClassificationFeedback.original_intent
+            != ClassificationFeedback.corrected_intent,
+        )
+        .group_by(
+            ClassificationFeedback.original_intent,
+            ClassificationFeedback.corrected_intent,
+        )
+        .order_by(func.count(ClassificationFeedback.id).desc())
+        .limit(10)
+        .all()
+    )
+
+    return FeedbackStatsResponse(
+        ok=True,
+        statistics={
+            "total_feedback": total,
+            "pending_application": pending,
+            "applied": applied,
+            "by_type": {row.feedback_type: row.count for row in by_type},
+            "top_corrections": [
+                {
+                    "from": row.original_intent,
+                    "to": row.corrected_intent,
+                    "count": row.count,
+                }
+                for row in top_corrections
+            ],
+        },
+    )
+
+
+# ============================================
+# Pattern Management Endpoints
+# ============================================
+
+
+@app.get("/v1/patterns/pending", response_model=PatternListResponse)
+async def list_pending_patterns(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List patterns pending approval"""
+    patterns = (
+        db.query(PatternApplicationLog)
+        .filter(PatternApplicationLog.status == "pending")
+        .order_by(PatternApplicationLog.created_at.desc())
+        .all()
+    )
+    return PatternListResponse(
+        ok=True, patterns=[PatternItem.model_validate(p) for p in patterns]
+    )
+
+
+@app.get("/v1/patterns/all", response_model=PatternListResponse)
+async def list_all_patterns(
+    status_filter: Optional[str] = Query(None, description="Filter by status"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all patterns with optional status filter"""
+    query = db.query(PatternApplicationLog)
+    if status_filter:
+        query = query.filter(PatternApplicationLog.status == status_filter)
+    patterns = query.order_by(PatternApplicationLog.created_at.desc()).all()
+    return PatternListResponse(
+        ok=True, patterns=[PatternItem.model_validate(p) for p in patterns]
+    )
+
+
+@app.post("/v1/patterns/{pattern_id}/approve", response_model=PatternActionResponse)
+async def approve_pattern(
+    pattern_id: UUID,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_admin_user),
+):
+    """Approve a pending pattern (admin only)"""
+    pattern = (
+        db.query(PatternApplicationLog)
+        .filter(PatternApplicationLog.id == pattern_id)
+        .first()
+    )
+    if not pattern:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "ok": False,
+                "error": {"code": "NOT_FOUND", "message": "Pattern not found"},
+            },
+        )
+
+    if pattern.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "ok": False,
+                "error": {
+                    "code": "INVALID_STATUS",
+                    "message": f"Pattern is already {pattern.status}",
+                },
+            },
+        )
+
+    pattern.status = "approved"
+    pattern.reviewed_by = admin_user.id
+    pattern.reviewed_at = get_kst_now()
+    db.commit()
+    db.refresh(pattern)
+
+    return PatternActionResponse(ok=True, pattern=PatternItem.model_validate(pattern))
+
+
+@app.post("/v1/patterns/{pattern_id}/reject", response_model=PatternActionResponse)
+async def reject_pattern(
+    pattern_id: UUID,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_admin_user),
+):
+    """Reject a pending pattern (admin only)"""
+    pattern = (
+        db.query(PatternApplicationLog)
+        .filter(PatternApplicationLog.id == pattern_id)
+        .first()
+    )
+    if not pattern:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "ok": False,
+                "error": {"code": "NOT_FOUND", "message": "Pattern not found"},
+            },
+        )
+
+    if pattern.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "ok": False,
+                "error": {
+                    "code": "INVALID_STATUS",
+                    "message": f"Pattern is already {pattern.status}",
+                },
+            },
+        )
+
+    pattern.status = "rejected"
+    pattern.reviewed_by = admin_user.id
+    pattern.reviewed_at = get_kst_now()
+    db.commit()
+    db.refresh(pattern)
+
+    return PatternActionResponse(ok=True, pattern=PatternItem.model_validate(pattern))
+
+
+@app.post("/v1/patterns/apply", response_model=PatternApplyResponse)
+async def apply_approved_patterns(
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_admin_user),
+):
+    """Apply all approved patterns to the system (admin only)"""
+    approved_patterns = (
+        db.query(PatternApplicationLog)
+        .filter(PatternApplicationLog.status == "approved")
+        .all()
+    )
+
+    if not approved_patterns:
+        return PatternApplyResponse(
+            ok=True,
+            applied={
+                "skip_llm_patterns": 0,
+                "internal_markers": 0,
+                "new_intents": 0,
+                "message": "No approved patterns to apply",
+            },
+        )
+
+    results = {
+        "skip_llm_patterns": 0,
+        "internal_markers": 0,
+        "new_intents": 0,
+        "errors": [],
+    }
+    now = get_kst_now()
+
+    for pattern in approved_patterns:
+        try:
+            pattern.status = "applied"
+            pattern.applied_at = now
+            pattern.application_result = {"applied_by": admin_user.id}
+
+            if pattern.pattern_type == "skip_llm":
+                results["skip_llm_patterns"] += 1
+            elif pattern.pattern_type == "internal_marker":
+                results["internal_markers"] += 1
+            elif pattern.pattern_type == "new_intent":
+                results["new_intents"] += 1
+
+        except Exception as e:
+            results["errors"].append({"pattern_id": str(pattern.id), "error": str(e)})
+
+    db.commit()
+
+    return PatternApplyResponse(
+        ok=True,
+        applied={
+            "skip_llm_patterns": results["skip_llm_patterns"],
+            "internal_markers": results["internal_markers"],
+            "new_intents": results["new_intents"],
+            "applied_at": now.isoformat(),
+            "errors": results["errors"] if results["errors"] else None,
+        },
+    )
+
+
+# ============================================
+# Learning Insights Endpoint
+# ============================================
+
+
+@app.get("/v1/learning/insights", response_model=InsightsResponse)
+async def get_learning_insights(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get structured key_insights from latest learning"""
+    understanding = (
+        db.query(CSUnderstanding).order_by(CSUnderstanding.version.desc()).first()
+    )
+
+    if not understanding:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "ok": False,
+                "error": {"code": "NOT_FOUND", "message": "No learning data available"},
+            },
+        )
+
+    return InsightsResponse(
+        ok=True,
+        version=understanding.version,
+        created_at=understanding.created_at,
+        insights=understanding.key_insights,
+    )
 
 
 if __name__ == "__main__":

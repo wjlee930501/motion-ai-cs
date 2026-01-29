@@ -66,9 +66,8 @@ export function AdminUsersPage() {
         setNewUser({ email: '', password: '', name: '' })
         toast.success('계정이 생성되었습니다.')
       },
-      onError: (err: any) => {
-        const message = err.response?.data?.detail?.error?.message || '계정 생성에 실패했습니다.'
-        toast.error(message)
+      onError: () => {
+        toast.error('계정 생성에 실패했습니다.')
       },
     }
   )
@@ -81,9 +80,8 @@ export function AdminUsersPage() {
         setDeleteConfirm(null)
         toast.success('계정이 삭제되었습니다.')
       },
-      onError: (err: any) => {
-        const message = err.response?.data?.detail?.error?.message || '계정 삭제에 실패했습니다.'
-        toast.error(message)
+      onError: () => {
+        toast.error('계정 삭제에 실패했습니다.')
       },
     }
   )

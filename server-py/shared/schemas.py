@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 # Common
 # ============================================
 
+
 class ErrorDetail(BaseModel):
     code: str
     message: str
@@ -21,6 +22,7 @@ class ErrorResponse(BaseModel):
 # ============================================
 # Ingest API - Events
 # ============================================
+
 
 class EventMetadata(BaseModel):
     title: Optional[str] = None
@@ -49,6 +51,7 @@ class EventResponse(BaseModel):
 # Ingest API - Heartbeat
 # ============================================
 
+
 class HeartbeatRequest(BaseModel):
     device_id: str
     ts: datetime
@@ -61,6 +64,7 @@ class HeartbeatResponse(BaseModel):
 # ============================================
 # Dashboard API - Auth
 # ============================================
+
 
 class LoginRequest(BaseModel):
     email: str
@@ -86,6 +90,7 @@ class LoginResponse(BaseModel):
 # ============================================
 # Dashboard API - Users
 # ============================================
+
 
 class UserCreate(BaseModel):
     email: str
@@ -120,8 +125,10 @@ class UserDeleteResponse(BaseModel):
 # Dashboard API - Tickets
 # ============================================
 
+
 class TicketBase(BaseModel):
     """Base ticket fields shared between list item and detail views"""
+
     ticket_id: UUID
     clinic_key: str
     status: str
@@ -142,6 +149,7 @@ class TicketBase(BaseModel):
 
 class TicketItem(TicketBase):
     """Ticket list item with calculated SLA remaining"""
+
     sla_remaining_sec: Optional[int] = None
 
 
@@ -154,6 +162,7 @@ class TicketListResponse(BaseModel):
 
 class TicketDetail(TicketBase):
     """Full ticket detail with additional fields"""
+
     next_action: Optional[str] = None
     first_response_sec: Optional[int] = None
     created_at: datetime
@@ -176,6 +185,7 @@ class TicketUpdate(BaseModel):
 # Dashboard API - Ticket Events
 # ============================================
 
+
 class TicketEventItem(BaseModel):
     event_id: UUID
     sender_name: str
@@ -196,6 +206,7 @@ class TicketEventResponse(BaseModel):
 # ============================================
 # Dashboard API - Metrics
 # ============================================
+
 
 class MetricsData(BaseModel):
     today_inbound: int
@@ -227,6 +238,7 @@ class ClinicHealthResponse(BaseModel):
 # LLM Classification
 # ============================================
 
+
 class LLMClassificationResult(BaseModel):
     topic: str
     urgency: str  # critical, high, medium, low
@@ -245,6 +257,7 @@ class LLMTicketSummaryResult(BaseModel):
 # ============================================
 # Dashboard API - Notifications
 # ============================================
+
 
 class NotificationItem(BaseModel):
     id: int
@@ -279,6 +292,7 @@ class NotificationReadAllResponse(BaseModel):
 # ============================================
 # Dashboard API - Message Templates
 # ============================================
+
 
 class TemplateItem(BaseModel):
     id: int
@@ -322,3 +336,97 @@ class TemplateDeleteResponse(BaseModel):
 class TemplateCopyResponse(BaseModel):
     ok: bool = True
     message: str = "Usage count updated"
+
+
+# ============================================
+# Dashboard API - Classification Feedback
+# ============================================
+
+
+class FeedbackCreate(BaseModel):
+    event_id: UUID
+    corrected_intent: Optional[str] = None
+    corrected_needs_reply: Optional[bool] = None
+    corrected_topic: Optional[str] = None
+
+
+class FeedbackItem(BaseModel):
+    id: UUID
+    event_id: UUID
+    ticket_id: UUID
+    original_intent: str
+    original_needs_reply: bool
+    original_topic: Optional[str] = None
+    corrected_intent: Optional[str] = None
+    corrected_needs_reply: Optional[bool] = None
+    corrected_topic: Optional[str] = None
+    feedback_type: str
+    corrected_by: Optional[int] = None
+    corrected_at: datetime
+    applied_to_version: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FeedbackResponse(BaseModel):
+    ok: bool = True
+    feedback: FeedbackItem
+
+
+class FeedbackListResponse(BaseModel):
+    ok: bool = True
+    feedbacks: list[FeedbackItem]
+    total: int
+
+
+class FeedbackStatsResponse(BaseModel):
+    ok: bool = True
+    statistics: dict
+
+
+# ============================================
+# Dashboard API - Pattern Management
+# ============================================
+
+
+class PatternItem(BaseModel):
+    id: UUID
+    understanding_version: int
+    pattern_type: str
+    pattern_data: dict
+    status: str
+    reviewed_by: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
+    applied_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PatternListResponse(BaseModel):
+    ok: bool = True
+    patterns: list[PatternItem]
+
+
+class PatternActionResponse(BaseModel):
+    ok: bool = True
+    pattern: PatternItem
+
+
+class PatternApplyResponse(BaseModel):
+    ok: bool = True
+    applied: dict
+
+
+# ============================================
+# Dashboard API - Learning Insights
+# ============================================
+
+
+class InsightsResponse(BaseModel):
+    ok: bool = True
+    version: int
+    created_at: datetime
+    insights: Optional[dict] = None

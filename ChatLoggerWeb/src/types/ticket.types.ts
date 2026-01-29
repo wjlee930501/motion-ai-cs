@@ -183,3 +183,148 @@ export interface TemplateCategoriesResponse {
   ok: boolean
   categories: TemplateCategoryCount[]
 }
+
+// Learning System v2 Types
+
+export type IntentType =
+  | 'inquiry_status'
+  | 'request_action'
+  | 'request_change'
+  | 'complaint'
+  | 'question_how'
+  | 'question_when'
+  | 'follow_up'
+  | 'provide_info'
+  | 'acknowledgment'
+  | 'greeting'
+  | 'internal_discussion'
+  | 'reaction'
+  | 'confirmation_received'
+  | 'other'
+
+export interface FeedbackCreate {
+  event_id: string
+  corrected_intent?: IntentType
+  corrected_needs_reply?: boolean
+  corrected_topic?: string
+}
+
+export interface ClassificationFeedback {
+  id: string
+  event_id: string
+  ticket_id: string
+  original_intent: string
+  original_needs_reply: boolean
+  original_topic?: string
+  corrected_intent?: string
+  corrected_needs_reply?: boolean
+  corrected_topic?: string
+  feedback_type: 'correction' | 'confirmation' | 'rejection'
+  corrected_by?: number
+  corrected_at: string
+  applied_to_version?: number
+}
+
+export interface FeedbackResponse {
+  ok: boolean
+  feedback: ClassificationFeedback
+}
+
+export interface FeedbackListResponse {
+  ok: boolean
+  feedbacks: ClassificationFeedback[]
+  total: number
+}
+
+export interface FeedbackStats {
+  total_feedback: number
+  pending_application: number
+  applied: number
+  by_type: Record<string, number>
+  top_corrections: Array<{ from: string; to: string; count: number }>
+}
+
+export interface FeedbackStatsResponse {
+  ok: boolean
+  statistics: FeedbackStats
+}
+
+export interface Pattern {
+  id: string
+  understanding_version: number
+  pattern_type: 'skip_llm' | 'internal_marker' | 'confirmation' | 'new_intent'
+  pattern_data: Record<string, unknown>
+  status: 'pending' | 'approved' | 'rejected' | 'applied'
+  reviewed_by?: number
+  reviewed_at?: string
+  applied_at?: string
+  created_at: string
+}
+
+export interface PatternListResponse {
+  ok: boolean
+  patterns: Pattern[]
+}
+
+export interface PatternActionResponse {
+  ok: boolean
+  pattern: Pattern
+}
+
+export interface PatternApplyResponse {
+  ok: boolean
+  applied: {
+    skip_llm_patterns: number
+    internal_markers: number
+    new_intents: number
+    applied_at?: string
+    errors?: Array<{ pattern_id: string; error: string }>
+  }
+}
+
+export interface KeyInsights {
+  version?: string
+  internal_discussion_markers?: Array<{
+    pattern: string
+    type: string
+    description?: string
+    confidence: number
+    example_count?: number
+  }>
+  confirmation_patterns?: Array<{
+    trigger_message: string
+    closing_response: string
+    is_closing: boolean
+    confidence: number
+  }>
+  skip_llm_candidates?: Array<{
+    pattern: string
+    intent: string
+    needs_reply: boolean
+    confidence: number
+    example_count?: number
+  }>
+  new_intent_candidates?: Array<{
+    suggested_name: string
+    description_ko: string
+    examples?: string[]
+    parent_intent?: string
+    needs_reply: boolean
+    frequency: number
+    confidence: number
+  }>
+  topic_statistics?: Record<string, { count: number; avg_urgency: string }>
+  misclassification_learnings?: Array<{
+    original_intent: string
+    corrected_intent: string
+    pattern: string
+    lesson: string
+  }>
+}
+
+export interface InsightsResponse {
+  ok: boolean
+  version: number
+  created_at: string
+  insights?: KeyInsights
+}

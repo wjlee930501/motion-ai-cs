@@ -1,8 +1,6 @@
 import axios from 'axios';
-
-// Use Dashboard API for ticket/request operations
-// Legacy endpoints have been migrated to Python backend
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { TicketUpdate } from '@/types/ticket.types';
+import { API_BASE_URL } from '@/constants/api.constants';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -65,7 +63,7 @@ export const requestApi = {
   },
 
   // Update request
-  updateRequest: async (id: string, updateData: any) => {
+  updateRequest: async (id: string, updateData: Partial<TicketUpdate>) => {
     const { data } = await api.patch(`/requests/${id}`, updateData);
     return data;
   },
