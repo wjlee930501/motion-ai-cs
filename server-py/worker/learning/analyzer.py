@@ -218,6 +218,8 @@ def analyze_and_save(
         date_from=log_meta["date_from"],
         date_to=log_meta["date_to"],
         feedback_summary=feedback_summary if feedback_summary["total"] > 0 else None,
+        total_available=log_meta.get("total_available"),
+        rooms_included=log_meta.get("rooms_included"),
     )
 
     client = get_anthropic_client()

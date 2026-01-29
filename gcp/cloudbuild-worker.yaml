@@ -1,0 +1,55 @@
+substitutions:
+  _REGION: asia-northeast3
+  _WORKER_SERVICE: cs-worker
+  _CLOUD_SQL_INSTANCE: cs-intelligence-db
+
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cs-intelligence/${_WORKER_SERVICE}:latest'
+      - '-f'
+      - 'server-py/Dockerfile.worker'
+      - './server-py'
+    id: 'build-worker'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/cs-intelligence/${_WORKER_SERVICE}:latest']
+    id: 'push-worker'
+    waitFor: ['build-worker']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_WORKER_SERVICE}'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/cs-intelligence/${_WORKER_SERVICE}:latest'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--no-allow-unauthenticated'
+      - '--add-cloudsql-instances'
+      - '$PROJECT_ID:${_REGION}:${_CLOUD_SQL_INSTANCE}'
+      - '--set-secrets'
+      - 'DATABASE_URL=cs-database-url:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,SLACK_WEBHOOK_URL=slack-webhook-url:latest'
+      - '--set-env-vars'
+      - 'ANTHROPIC_MODEL_DEFAULT=claude-3-haiku-20240307,ANTHROPIC_MODEL_ESCALATE=claude-3-5-sonnet-20241022,SLA_THRESHOLD_MINUTES=20,DASHBOARD_URL=https://cs.motionlabs.kr'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--min-instances'
+      - '1'
+      - '--max-instances'
+      - '3'
+    id: 'deploy-worker'
+    waitFor: ['push-worker']
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+timeout: '900s'

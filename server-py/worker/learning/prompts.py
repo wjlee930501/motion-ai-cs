@@ -55,6 +55,8 @@ def build_user_prompt(
     date_from,
     date_to,
     feedback_summary: Optional[dict] = None,
+    total_available: Optional[int] = None,
+    rooms_included: Optional[int] = None,
 ) -> str:
     prev_section = previous_understanding or "없음 (첫 번째 학습입니다)"
 
@@ -65,6 +67,12 @@ def build_user_prompt(
     else:
         date_range = "날짜 정보 없음"
 
+    count_info = f"총 {log_count}건의 대화"
+    if total_available and total_available > log_count:
+        count_info += f" (전체 {total_available}건 중 샘플링)"
+    if rooms_included:
+        count_info += f", {rooms_included}개 채팅방"
+
     base_prompt = f"""## 이전 이해
 
 {prev_section}
@@ -73,7 +81,7 @@ def build_user_prompt(
 
 ## 대화 로그
 
-총 {log_count}건의 대화 ({date_range})
+{count_info} ({date_range})
 
 {logs_text}
 
