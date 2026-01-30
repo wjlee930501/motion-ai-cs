@@ -6,8 +6,11 @@ LLM 프롬프트와 코드 로직의 일관성 보장
 """
 
 import re
+import logging
 from typing import Dict, List
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -161,7 +164,7 @@ def get_needs_reply(intent: str) -> bool:
     """Intent에 따른 needs_reply 값 반환"""
     if intent in INTENTS:
         return INTENTS[intent].needs_reply
-    print(f"[WARN] Unknown intent: {intent}, defaulting to needs_reply=True")
+    logger.warning(f"Unknown intent: {intent}, defaulting to needs_reply=True")
     return True
 
 

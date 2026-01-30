@@ -1,6 +1,7 @@
 import os
 import httpx
 import threading
+import logging
 from uuid import UUID
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -10,6 +11,8 @@ from fastapi import FastAPI, Depends, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, case
+
+logger = logging.getLogger(__name__)
 
 from shared.database import get_db, engine, Base
 from shared.models import (
@@ -122,7 +125,7 @@ async def lifespan(app: FastAPI):
             db.add(admin)
             db.commit()
             if default_admin_pw == "1234":
-                print("[WARN] Admin created with default password '1234'. Set ADMIN_DEFAULT_PASSWORD env var for production.")
+                logger.warning("Admin created with default password '1234'. Set ADMIN_DEFAULT_PASSWORD env var for production.")
         elif admin.role != "admin":
             # Ensure existing admin account has admin role
             admin.role = "admin"
@@ -864,7 +867,7 @@ async def trigger_learning_cycle(
                 }
     except httpx.RequestError as e:
         # Fallback: try to run locally if worker is not accessible
-        print(f"[Learning] Worker not accessible ({e}), trying local execution...")
+        logger.warning(f"Worker not accessible ({e}), trying local execution...")
         try:
             from worker.learning import run_learning_cycle_manual
 
@@ -872,7 +875,7 @@ async def trigger_learning_cycle(
                 try:
                     run_learning_cycle_manual()
                 except Exception as ex:
-                    print(f"[Learning] Local run failed: {ex}")
+                    logger.error(f"Local learning run failed: {ex}")
 
             thread = threading.Thread(target=run_in_background, daemon=True)
             thread.start()
@@ -1286,13 +1289,12 @@ async def submit_classification_feedback(
     original_topic = None
     original_confidence = None
 
-    if annotation and annotation.result:
-        original_intent = annotation.result.get("intent", "unknown")
-        original_needs_reply = annotation.result.get("needs_reply", True)
-        original_topic = annotation.result.get("topic")
-        confidence_val = annotation.result.get("confidence")
-        if confidence_val is not None:
-            original_confidence = float(confidence_val)
+    if annotation:
+        original_intent = annotation.intent or "unknown"
+        original_needs_reply = annotation.needs_reply if annotation.needs_reply is not None else True
+        original_topic = annotation.topic
+        if annotation.confidence is not None:
+            original_confidence = float(annotation.confidence)
 
     feedback = ClassificationFeedback(
         event_id=request.event_id,
@@ -1412,6 +1414,7 @@ async def get_feedback_statistics(
 
 @app.get("/v1/patterns/pending", response_model=PatternListResponse)
 async def list_pending_patterns(
+    limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1420,6 +1423,7 @@ async def list_pending_patterns(
         db.query(PatternApplicationLog)
         .filter(PatternApplicationLog.status == "pending")
         .order_by(PatternApplicationLog.created_at.desc())
+        .limit(limit)
         .all()
     )
     return PatternListResponse(
@@ -1430,6 +1434,7 @@ async def list_pending_patterns(
 @app.get("/v1/patterns/all", response_model=PatternListResponse)
 async def list_all_patterns(
     status_filter: Optional[str] = Query(None, description="Filter by status"),
+    limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1437,7 +1442,7 @@ async def list_all_patterns(
     query = db.query(PatternApplicationLog)
     if status_filter:
         query = query.filter(PatternApplicationLog.status == status_filter)
-    patterns = query.order_by(PatternApplicationLog.created_at.desc()).all()
+    patterns = query.order_by(PatternApplicationLog.created_at.desc()).limit(limit).all()
     return PatternListResponse(
         ok=True, patterns=[PatternItem.model_validate(p) for p in patterns]
     )
@@ -1591,6 +1596,63 @@ async def apply_approved_patterns(
 # ============================================
 # Learning Insights Endpoint
 # ============================================
+
+
+@app.get("/v1/learning/stats")
+async def get_learning_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get learning stats including accuracy per version"""
+    # 최근 10개 버전의 정확도 추이
+    versions = (
+        db.query(
+            CSUnderstanding.version,
+            CSUnderstanding.created_at,
+            CSUnderstanding.accuracy_score,
+            CSUnderstanding.auto_approved_patterns_count,
+            CSUnderstanding.logs_analyzed_count,
+        )
+        .order_by(CSUnderstanding.version.desc())
+        .limit(10)
+        .all()
+    )
+
+    # 자동 승인된 패턴 총 수
+    auto_approved_total = (
+        db.query(func.count(PatternApplicationLog.id))
+        .filter(PatternApplicationLog.auto_approved == True)
+        .scalar()
+        or 0
+    )
+
+    # 전체 패턴 상태별 수
+    pattern_stats = (
+        db.query(
+            PatternApplicationLog.status,
+            func.count(PatternApplicationLog.id).label("count"),
+        )
+        .group_by(PatternApplicationLog.status)
+        .all()
+    )
+
+    return {
+        "ok": True,
+        "accuracy_trend": [
+            {
+                "version": v.version,
+                "created_at": v.created_at.isoformat() if v.created_at else None,
+                "accuracy_score": float(v.accuracy_score) if v.accuracy_score else None,
+                "auto_approved_patterns": v.auto_approved_patterns_count or 0,
+                "logs_analyzed": v.logs_analyzed_count or 0,
+            }
+            for v in reversed(versions)
+        ],
+        "pattern_summary": {
+            "auto_approved_total": auto_approved_total,
+            "by_status": {row.status: row.count for row in pattern_stats},
+        },
+    }
 
 
 @app.get("/v1/learning/insights", response_model=InsightsResponse)

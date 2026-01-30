@@ -255,6 +255,7 @@ export interface Pattern {
   pattern_type: 'skip_llm' | 'internal_marker' | 'confirmation' | 'new_intent'
   pattern_data: Record<string, unknown>
   status: 'pending' | 'approved' | 'rejected' | 'applied'
+  auto_approved: boolean
   reviewed_by?: number
   reviewed_at?: string
   applied_at?: string

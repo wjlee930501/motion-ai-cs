@@ -2,11 +2,13 @@
 LLM 분석기
 
 이전 이해를 로드하고 새로운 이해를 형성하여 저장.
+자동 승인, 정확도 추적, Slack 알림 포함.
 """
 
 import json
 import logging
 import re
+import httpx
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
 from sqlalchemy.orm import Session
@@ -19,6 +21,8 @@ from shared.models import (
     LearningExecution,
     ClassificationFeedback,
     PatternApplicationLog,
+    MessageEvent,
+    LLMAnnotation,
 )
 from .prompts import SYSTEM_PROMPT, build_user_prompt
 
@@ -150,50 +154,214 @@ def validate_key_insights(insights: Dict) -> bool:
 def extract_and_save_patterns(
     db: Session, understanding_version: int, key_insights: Dict
 ) -> List[Dict]:
-    """key_insights에서 패턴 추출 후 승인 대기 상태로 저장"""
+    """key_insights에서 패턴 추출 후 저장. 고신뢰도 skip_llm 패턴은 자동 승인."""
     patterns_to_save = []
+    auto_approved_count = 0
 
     for candidate in key_insights.get("skip_llm_candidates", []):
         if (
             candidate.get("confidence", 0) >= 0.9
             and candidate.get("example_count", 0) >= 3
         ):
-            patterns_to_save.append(
-                {"pattern_type": "skip_llm", "pattern_data": candidate}
+            # 고신뢰도(≥0.95) + 충분한 예시(≥5) → 자동 승인 후보
+            is_auto = (
+                candidate.get("confidence", 0) >= 0.95
+                and candidate.get("example_count", 0) >= 5
             )
+
+            # 자동 승인 안전 검사: 너무 넓은 패턴 거부
+            if is_auto:
+                pattern_str = candidate.get("pattern", "")
+                # 최소 길이 미달, 와일드카드만 있는 패턴, 빈 패턴 → 수동 검토로 전환
+                if (
+                    len(pattern_str) < 3
+                    or pattern_str in (".*", ".+", "^.*$", "^.+$")
+                    or not pattern_str
+                ):
+                    logger.warning(
+                        f"Auto-approval rejected for overly broad pattern: '{pattern_str}'"
+                    )
+                    is_auto = False
+
+            patterns_to_save.append({
+                "pattern_type": "skip_llm",
+                "pattern_data": candidate,
+                "auto_approved": is_auto,
+            })
+            if is_auto:
+                auto_approved_count += 1
 
     for marker in key_insights.get("internal_discussion_markers", []):
         if marker.get("confidence", 0) >= 0.85:
             patterns_to_save.append(
-                {"pattern_type": "internal_marker", "pattern_data": marker}
+                {"pattern_type": "internal_marker", "pattern_data": marker, "auto_approved": False}
             )
 
     for pattern in key_insights.get("confirmation_patterns", []):
         if pattern.get("confidence", 0) >= 0.85:
             patterns_to_save.append(
-                {"pattern_type": "confirmation", "pattern_data": pattern}
+                {"pattern_type": "confirmation", "pattern_data": pattern, "auto_approved": False}
             )
 
     for intent in key_insights.get("new_intent_candidates", []):
         if intent.get("frequency", 0) >= 30 and intent.get("confidence", 0) >= 0.7:
             patterns_to_save.append(
-                {"pattern_type": "new_intent", "pattern_data": intent}
+                {"pattern_type": "new_intent", "pattern_data": intent, "auto_approved": False}
             )
 
+    now = datetime.utcnow()
     for pattern in patterns_to_save:
+        is_auto = pattern.get("auto_approved", False)
         log = PatternApplicationLog(
             understanding_version=understanding_version,
             pattern_type=pattern["pattern_type"],
             pattern_data=pattern["pattern_data"],
-            status="pending",
+            status="approved" if is_auto else "pending",
+            auto_approved=is_auto,
+            reviewed_at=now if is_auto else None,
         )
         db.add(log)
 
     if patterns_to_save:
         db.commit()
-        logger.info(f"Saved {len(patterns_to_save)} patterns for review")
+        logger.info(
+            f"Saved {len(patterns_to_save)} patterns "
+            f"({auto_approved_count} auto-approved, "
+            f"{len(patterns_to_save) - auto_approved_count} pending review)"
+        )
 
     return patterns_to_save
+
+
+def calculate_accuracy_metrics(
+    db: Session, since_version: int
+) -> Optional[Dict[str, Any]]:
+    """
+    특정 버전 이후 분류된 이벤트의 정확도를 계산.
+
+    correction_rate = 실제 수정된 이벤트 수 / 해당 기간 분류된 이벤트 수
+    accuracy = 1 - correction_rate
+
+    corrections는 event_id 기준으로 LLMAnnotation과 같은 범위에서 계산.
+    """
+    try:
+        # 해당 버전의 CSUnderstanding 생성 시점 조회
+        understanding = db.query(CSUnderstanding).filter(
+            CSUnderstanding.version == since_version
+        ).first()
+
+        if not understanding or not understanding.created_at:
+            return None
+
+        since_date = understanding.created_at
+
+        # 다음 버전이 있으면 그 시점까지만 측정 (버전 간 구간 한정)
+        next_understanding = db.query(CSUnderstanding).filter(
+            CSUnderstanding.version == since_version + 1
+        ).first()
+        until_date = next_understanding.created_at if next_understanding else None
+
+        # 해당 구간에 분류된 이벤트 수 (target_type='event')
+        classified_query = db.query(func.count(LLMAnnotation.id)).filter(
+            LLMAnnotation.target_type == "event",
+            LLMAnnotation.created_at >= since_date,
+        )
+        if until_date:
+            classified_query = classified_query.filter(
+                LLMAnnotation.created_at < until_date
+            )
+        total_classified = classified_query.scalar() or 0
+
+        if total_classified == 0:
+            return None
+
+        # 같은 구간에서 이벤트 분류에 대한 피드백 수정 건수
+        corrections_query = db.query(
+            func.count(ClassificationFeedback.id)
+        ).filter(
+            ClassificationFeedback.corrected_at >= since_date,
+            ClassificationFeedback.feedback_type == "correction",
+        )
+        if until_date:
+            corrections_query = corrections_query.filter(
+                ClassificationFeedback.corrected_at < until_date
+            )
+        corrections = corrections_query.scalar() or 0
+
+        correction_rate = corrections / total_classified
+        accuracy = 1.0 - correction_rate
+
+        return {
+            "total_classified": total_classified,
+            "corrections": corrections,
+            "correction_rate": round(correction_rate, 4),
+            "accuracy": round(max(accuracy, 0.0), 4),  # 음수 방지 (corrections > classified 가능)
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to calculate accuracy metrics: {e}")
+        return None
+
+
+def send_learning_slack_notification(
+    version: int,
+    logs_analyzed: int,
+    auto_approved_count: int,
+    pending_count: int,
+    accuracy_data: Optional[Dict] = None,
+    prev_accuracy: Optional[float] = None,
+) -> None:
+    """학습 완료 후 Slack 웹훅으로 요약 전송"""
+    webhook_url = settings.slack_webhook_url
+    if not webhook_url:
+        logger.info("[Slack] No webhook URL configured, skipping notification")
+        return
+
+    blocks = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"🧠 학습 완료 - v{version}",
+            },
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*분석 메시지:*\n{logs_analyzed:,}건"},
+                {"type": "mrkdwn", "text": f"*자동승인 패턴:*\n{auto_approved_count}개"},
+                {"type": "mrkdwn", "text": f"*수동승인 대기:*\n{pending_count}개"},
+            ],
+        },
+    ]
+
+    if accuracy_data:
+        accuracy_pct = f"{accuracy_data['accuracy'] * 100:.1f}%"
+        accuracy_text = f"*이전 버전 정확도:*\n{accuracy_pct}"
+        if prev_accuracy is not None:
+            diff = accuracy_data["accuracy"] - prev_accuracy
+            arrow = "📈" if diff > 0 else "📉" if diff < 0 else "➡️"
+            accuracy_text += f" ({arrow} {diff * 100:+.1f}%p)"
+        blocks.append({
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": accuracy_text},
+                {"type": "mrkdwn", "text": f"*수정 건수:*\n{accuracy_data['corrections']}건"},
+            ],
+        })
+
+    try:
+        resp = httpx.post(
+            webhook_url,
+            json={"blocks": blocks},
+            timeout=10.0,
+        )
+        if resp.status_code == 200:
+            logger.info(f"[Slack] Learning notification sent for v{version}")
+        else:
+            logger.warning(f"[Slack] Webhook returned {resp.status_code}")
+    except Exception as e:
+        logger.error(f"[Slack] Failed to send notification: {e}")
 
 
 def analyze_and_save(
@@ -232,10 +400,31 @@ def analyze_and_save(
         messages=[{"role": "user", "content": user_prompt}],
     )
 
+    if not response.content or not hasattr(response.content[0], 'text'):
+        raise ValueError("LLM returned empty or non-text response")
     raw_output = response.content[0].text
     understanding_text, key_insights = parse_learning_output(raw_output)
 
     new_version = previous_version + 1
+
+    # 이전 버전 정확도 계산
+    accuracy_data = None
+    prev_accuracy_score = None
+    if previous_version > 0:
+        accuracy_data = calculate_accuracy_metrics(db, previous_version)
+        if accuracy_data:
+            # 이전 버전의 accuracy_score 업데이트
+            prev_understanding = db.query(CSUnderstanding).filter(
+                CSUnderstanding.version == previous_version
+            ).first()
+            if prev_understanding:
+                prev_accuracy_score = float(prev_understanding.accuracy_score) if prev_understanding.accuracy_score else None
+                prev_understanding.accuracy_score = accuracy_data["accuracy"]
+                db.commit()
+                logger.info(
+                    f"Updated v{previous_version} accuracy: {accuracy_data['accuracy']:.4f} "
+                    f"({accuracy_data['corrections']}/{accuracy_data['total_classified']} corrections)"
+                )
 
     new_understanding = CSUnderstanding(
         version=new_version,
@@ -251,9 +440,17 @@ def analyze_and_save(
     db.add(new_understanding)
     db.commit()
 
+    auto_approved_count = 0
+    pending_pattern_count = 0
     if key_insights:
         patterns_saved = extract_and_save_patterns(db, new_version, key_insights)
+        auto_approved_count = sum(1 for p in patterns_saved if p.get("auto_approved"))
+        pending_pattern_count = len(patterns_saved) - auto_approved_count
         logger.info(f"Extracted {len(patterns_saved)} patterns from key_insights")
+
+        # auto_approved_patterns_count 업데이트
+        new_understanding.auto_approved_patterns_count = auto_approved_count
+        db.commit()
 
     if feedback_summary["total"] > 0:
         db.query(ClassificationFeedback).filter(
@@ -269,11 +466,23 @@ def analyze_and_save(
         f"(tokens: {response.usage.input_tokens} in, {response.usage.output_tokens} out)"
     )
 
+    # Slack 알림 전송
+    send_learning_slack_notification(
+        version=new_version,
+        logs_analyzed=log_meta["count"],
+        auto_approved_count=auto_approved_count,
+        pending_count=pending_pattern_count,
+        accuracy_data=accuracy_data,
+        prev_accuracy=prev_accuracy_score,
+    )
+
     return {
         "version": new_version,
         "understanding": understanding_text,
         "key_insights": key_insights,
         "feedback_applied": feedback_summary["total"],
+        "auto_approved_patterns": auto_approved_count,
+        "accuracy": accuracy_data,
     }
 
 

@@ -284,6 +284,10 @@ class CSUnderstanding(Base):
     prompt_tokens = Column(Integer, nullable=True)
     completion_tokens = Column(Integer, nullable=True)
 
+    # 정확도 추적
+    accuracy_score = Column(Numeric, nullable=True)  # 1 - correction_rate
+    auto_approved_patterns_count = Column(Integer, nullable=True, default=0)
+
     __table_args__ = (
         Index("ix_cs_understanding_version", "version"),
         Index("ix_cs_understanding_created", "created_at"),
@@ -458,6 +462,9 @@ class PatternApplicationLog(Base):
 
     # 적용 결과
     application_result = Column(JSON, nullable=True)
+
+    # 자동 승인 여부
+    auto_approved = Column(Boolean, nullable=False, default=False)
 
     created_at = Column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False

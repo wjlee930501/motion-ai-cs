@@ -20,6 +20,10 @@ COLUMN_MIGRATIONS = [
     ("ticket", "intent", "ALTER TABLE ticket ADD COLUMN intent TEXT"),
     ("llm_annotation", "needs_reply", "ALTER TABLE llm_annotation ADD COLUMN needs_reply BOOLEAN"),
     ("users", "role", "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'member'"),
+    # 연구실→프로덕션 피드백 루프 마이그레이션
+    ("pattern_application_log", "auto_approved", "ALTER TABLE pattern_application_log ADD COLUMN auto_approved BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("cs_understanding", "accuracy_score", "ALTER TABLE cs_understanding ADD COLUMN accuracy_score NUMERIC"),
+    ("cs_understanding", "auto_approved_patterns_count", "ALTER TABLE cs_understanding ADD COLUMN auto_approved_patterns_count INTEGER DEFAULT 0"),
 ]
 
 

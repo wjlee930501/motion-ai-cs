@@ -19,7 +19,9 @@ import {
   TrendingUp,
   Check,
   Ban,
-  Settings
+  Settings,
+  BadgeCheck,
+  BarChart3,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -106,12 +108,38 @@ async function fetchInsights(): Promise<InsightsResponse> {
   return res.json()
 }
 
-async function fetchPendingPatterns(): Promise<PatternListResponse> {
+async function fetchAllPatterns(): Promise<PatternListResponse> {
   const token = localStorage.getItem('cs_token')
-  const res = await fetch(`${API_BASE_URL}/v1/patterns/pending`, {
+  const res = await fetch(`${API_BASE_URL}/v1/patterns/all`, {
     headers: { Authorization: `Bearer ${token}` }
   })
   if (!res.ok) throw new Error('Failed to fetch patterns')
+  return res.json()
+}
+
+interface AccuracyTrendItem {
+  version: number
+  created_at: string | null
+  accuracy_score: number | null
+  auto_approved_patterns: number
+  logs_analyzed: number
+}
+
+interface LearningStatsResponse {
+  ok: boolean
+  accuracy_trend: AccuracyTrendItem[]
+  pattern_summary: {
+    auto_approved_total: number
+    by_status: Record<string, number>
+  }
+}
+
+async function fetchLearningStats(): Promise<LearningStatsResponse> {
+  const token = localStorage.getItem('cs_token')
+  const res = await fetch(`${API_BASE_URL}/v1/learning/stats`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error('Failed to fetch learning stats')
   return res.json()
 }
 
@@ -224,9 +252,15 @@ export function LabModal({ isOpen, onClose }: LabModalProps) {
     { enabled: isOpen && activeTab === 'insights' }
   )
 
+  const { data: statsData, isLoading: isLoadingStats } = useQuery(
+    'learningStats',
+    fetchLearningStats,
+    { enabled: isOpen && activeTab === 'insights' }
+  )
+
   const { data: patternsData, isLoading: isLoadingPatterns, refetch: refetchPatterns } = useQuery(
-    'pendingPatterns',
-    fetchPendingPatterns,
+    'allPatterns',
+    fetchAllPatterns,
     { enabled: isOpen && activeTab === 'patterns' }
   )
 
@@ -245,19 +279,19 @@ export function LabModal({ isOpen, onClose }: LabModalProps) {
 
   const approveMutation = useMutation(approvePattern, {
     onSuccess: () => {
-      queryClient.invalidateQueries('pendingPatterns')
+      queryClient.invalidateQueries('allPatterns')
     }
   })
 
   const rejectMutation = useMutation(rejectPattern, {
     onSuccess: () => {
-      queryClient.invalidateQueries('pendingPatterns')
+      queryClient.invalidateQueries('allPatterns')
     }
   })
 
   const applyMutation = useMutation(applyPatterns, {
     onSuccess: () => {
-      queryClient.invalidateQueries('pendingPatterns')
+      queryClient.invalidateQueries('allPatterns')
     }
   })
 
@@ -394,7 +428,9 @@ export function LabModal({ isOpen, onClose }: LabModalProps) {
             <InsightsTab
               insights={insightsData?.insights}
               version={insightsData?.version}
-              isLoading={isLoadingInsights}
+              isLoading={isLoadingInsights || isLoadingStats}
+              accuracyTrend={statsData?.accuracy_trend}
+              patternSummary={statsData?.pattern_summary}
             />
           )}
 
@@ -531,7 +567,7 @@ function UnderstandingTab({
                   아직 학습된 이해가 없습니다.
                 </p>
                 <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">
-                  학습은 월/목 02:00 KST에 자동 실행됩니다.
+                  학습은 매일 02:00 KST에 자동 실행됩니다.
                 </p>
               </div>
             )}
@@ -588,9 +624,9 @@ function UnderstandingTab({
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-slate-500" />
                 <h3 className="font-medium text-slate-900 dark:text-white text-sm">실행 이력</h3>
-                {historyData?.executions?.length && (
+                {(historyData?.executions?.length ?? 0) > 0 && (
                   <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 text-xs rounded">
-                    {historyData.executions.length}
+                    {historyData!.executions!.length}
                   </span>
                 )}
               </div>
@@ -665,7 +701,7 @@ function UnderstandingTab({
             <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-1.5">
               <li className="flex items-start gap-2">
                 <span className="text-purple-500">-</span>
-                월/목 02:00 KST 자동 실행
+                매일 02:00 KST 자동 실행
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-purple-500">-</span>
@@ -691,9 +727,11 @@ interface InsightsTabProps {
   insights: KeyInsights | undefined | null
   version: number | undefined
   isLoading: boolean
+  accuracyTrend?: AccuracyTrendItem[]
+  patternSummary?: { auto_approved_total: number; by_status: Record<string, number> }
 }
 
-function InsightsTab({ insights, version, isLoading }: InsightsTabProps) {
+function InsightsTab({ insights, version, isLoading, accuracyTrend, patternSummary }: InsightsTabProps) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -702,7 +740,7 @@ function InsightsTab({ insights, version, isLoading }: InsightsTabProps) {
     )
   }
 
-  if (!insights) {
+  if (!insights && !accuracyTrend) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
         <Lightbulb className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-4" />
@@ -714,14 +752,86 @@ function InsightsTab({ insights, version, isLoading }: InsightsTabProps) {
     )
   }
 
+  // 정확도 추이에서 max 값 계산 (바 차트 스케일링용)
+  const maxAccuracy = accuracyTrend?.reduce(
+    (max, item) => Math.max(max, item.accuracy_score ?? 0), 0
+  ) ?? 1
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
         <span>버전 {version}</span>
-        {insights.version && <span>· 스키마 {insights.version}</span>}
+        {insights?.version && <span>· 스키마 {insights.version}</span>}
       </div>
 
-      {insights.skip_llm_candidates && insights.skip_llm_candidates.length > 0 && (
+      {/* 정확도 추이 차트 */}
+      {accuracyTrend && accuracyTrend.length > 0 && (
+        <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-emerald-500" />
+              <h3 className="font-semibold text-slate-900 dark:text-white">분류 정확도 추이</h3>
+            </div>
+            {patternSummary && (
+              <div className="flex items-center gap-3 text-xs text-slate-500">
+                <span className="flex items-center gap-1">
+                  <BadgeCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  자동승인 총 {patternSummary.auto_approved_total}개
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="p-4">
+            <div className="flex items-end gap-2 h-32">
+              {accuracyTrend.map((item) => {
+                const score = item.accuracy_score
+                const heightPct = score != null ? Math.max((score / Math.max(maxAccuracy, 0.01)) * 100, 4) : 0
+                return (
+                  <div key={item.version} className="flex-1 flex flex-col items-center gap-1">
+                    {score != null ? (
+                      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                        {(score * 100).toFixed(1)}%
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">-</span>
+                    )}
+                    <div className="w-full flex justify-center">
+                      <div
+                        className={clsx(
+                          'w-8 rounded-t-md transition-all',
+                          score != null && score >= 0.95 ? 'bg-emerald-500' :
+                          score != null && score >= 0.90 ? 'bg-emerald-400' :
+                          score != null && score >= 0.80 ? 'bg-amber-400' :
+                          score != null ? 'bg-red-400' :
+                          'bg-slate-200 dark:bg-slate-700'
+                        )}
+                        style={{ height: score != null ? `${heightPct}%` : '4px' }}
+                      />
+                    </div>
+                    <span className="text-xs text-slate-500">v{item.version}</span>
+                  </div>
+                )
+              })}
+            </div>
+            {accuracyTrend.some(i => i.auto_approved_patterns > 0) && (
+              <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <p className="text-xs text-slate-500 mb-2">자동승인 패턴 수</p>
+                <div className="flex items-end gap-2 h-8">
+                  {accuracyTrend.map((item) => (
+                    <div key={item.version} className="flex-1 flex flex-col items-center">
+                      <span className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                        {item.auto_approved_patterns || 0}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {insights?.skip_llm_candidates && insights.skip_llm_candidates.length > 0 && (
         <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
             <Zap className="w-5 h-5 text-amber-500" />
@@ -765,7 +875,7 @@ function InsightsTab({ insights, version, isLoading }: InsightsTabProps) {
         </section>
       )}
 
-      {insights.new_intent_candidates && insights.new_intent_candidates.length > 0 && (
+      {insights?.new_intent_candidates && insights.new_intent_candidates.length > 0 && (
         <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-blue-500" />
@@ -809,7 +919,7 @@ function InsightsTab({ insights, version, isLoading }: InsightsTabProps) {
         </section>
       )}
 
-      {insights.topic_statistics && Object.keys(insights.topic_statistics).length > 0 && (
+      {insights?.topic_statistics && Object.keys(insights.topic_statistics).length > 0 && (
         <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
             <FileText className="w-5 h-5 text-slate-500" />
@@ -943,15 +1053,23 @@ function PatternsTab({
                   </div>
                 )}
                 {pattern.status !== 'pending' && (
-                  <span className={clsx(
-                    'text-xs px-2 py-0.5 rounded-full',
-                    pattern.status === 'approved' && 'bg-emerald-100 text-emerald-700',
-                    pattern.status === 'rejected' && 'bg-red-100 text-red-700',
-                    pattern.status === 'applied' && 'bg-blue-100 text-blue-700'
-                  )}>
-                    {pattern.status === 'approved' ? '승인됨' :
-                     pattern.status === 'rejected' ? '거부됨' : '적용됨'}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {pattern.auto_approved && (
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 font-medium flex items-center gap-0.5">
+                        <BadgeCheck className="w-3 h-3" />
+                        AUTO
+                      </span>
+                    )}
+                    <span className={clsx(
+                      'text-xs px-2 py-0.5 rounded-full',
+                      pattern.status === 'approved' && 'bg-emerald-100 text-emerald-700',
+                      pattern.status === 'rejected' && 'bg-red-100 text-red-700',
+                      pattern.status === 'applied' && 'bg-blue-100 text-blue-700'
+                    )}>
+                      {pattern.status === 'approved' ? '승인됨' :
+                       pattern.status === 'rejected' ? '거부됨' : '적용됨'}
+                    </span>
+                  </div>
                 )}
               </div>
               <pre className="text-sm bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg overflow-x-auto">

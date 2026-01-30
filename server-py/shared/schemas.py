@@ -396,6 +396,7 @@ class PatternItem(BaseModel):
     pattern_type: str
     pattern_data: dict
     status: str
+    auto_approved: bool = False
     reviewed_by: Optional[int] = None
     reviewed_at: Optional[datetime] = None
     applied_at: Optional[datetime] = None
