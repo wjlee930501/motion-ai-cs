@@ -44,14 +44,20 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
+URGENT_PRIORITIES = {"urgent", "high"}
+
 
 def get_unprocessed_events(db: Session, limit: int = 50) -> list[MessageEvent]:
-    """Get events that haven't been processed yet"""
+    """Get events that haven't been processed yet.
+
+    Uses SELECT FOR UPDATE SKIP LOCKED to prevent duplicate processing
+    when multiple worker instances run concurrently.
+    """
     return db.query(MessageEvent).filter(
         MessageEvent.ingest_status == "received"
     ).order_by(
         MessageEvent.received_at.asc()
-    ).limit(limit).all()
+    ).limit(limit).with_for_update(skip_locked=True).all()
 
 
 def find_open_ticket(db: Session, clinic_key: str) -> Optional[Ticket]:
@@ -92,6 +98,78 @@ def save_llm_annotation(db: Session, event_id, model: str, result: dict):
     return annotation
 
 
+def reset_sla_for_reinquiry(ticket: Ticket, received_at: datetime):
+    """Reset SLA timers when a new inquiry arrives after a response."""
+    ticket.sla_breached = False
+    ticket.first_inbound_at = received_at
+    ticket.first_response_sec = None
+
+
+def apply_customer_classification(ticket: Ticket, event: MessageEvent, classification: dict, needs_reply: bool):
+    """Apply classification results and inbound timestamps to an existing ticket."""
+    ticket.last_inbound_at = event.received_at
+    ticket.last_message_sender = event.sender_name
+    ticket.needs_reply = needs_reply
+
+    if not needs_reply:
+        ticket.sla_breached = False
+
+    # C1: Initialize SLA timer if first real inbound on staff-initiated ticket
+    if needs_reply and ticket.first_inbound_at is None:
+        ticket.first_inbound_at = event.received_at
+        ticket.first_response_sec = None
+
+    if needs_reply and ticket.first_response_sec is not None:
+        reset_sla_for_reinquiry(ticket, event.received_at)
+
+    new_priority = get_priority_from_urgency(classification.get("urgency", "medium"))
+    if should_upgrade_priority(ticket.priority, new_priority):
+        ticket.priority = new_priority
+
+    if classification.get("summary"):
+        ticket.summary_latest = classification["summary"]
+
+    if classification.get("topic"):
+        ticket.topic_primary = classification["topic"]
+
+    if classification.get("intent"):
+        ticket.intent = classification["intent"]
+
+
+def create_customer_ticket(event: MessageEvent, classification: dict, needs_reply: bool) -> Ticket:
+    """Create a new ticket from a customer event."""
+    new_priority = get_priority_from_urgency(classification.get("urgency", "medium"))
+    return Ticket(
+        ticket_id=uuid4(),
+        clinic_key=event.chat_room,
+        status="onboarding",
+        priority=new_priority,
+        topic_primary=classification.get("topic"),
+        summary_latest=classification.get("summary"),
+        intent=classification.get("intent"),
+        first_inbound_at=event.received_at,
+        last_inbound_at=event.received_at,
+        last_message_sender=event.sender_name,
+        needs_reply=needs_reply,
+        sla_breached=False
+    )
+
+
+def create_staff_initiated_ticket(event: MessageEvent, clinic_key: str) -> Ticket:
+    """Create a ticket for staff-initiated conversations."""
+    return Ticket(
+        ticket_id=uuid4(),
+        clinic_key=clinic_key,
+        status="onboarding",
+        priority="normal",
+        first_inbound_at=None,
+        last_outbound_at=event.received_at,
+        last_message_sender=event.sender_name,
+        needs_reply=False,
+        sla_breached=False
+    )
+
+
 def handle_customer_event(db: Session, event: MessageEvent, classification: dict):
     """
     Handle incoming customer message.
@@ -104,75 +182,20 @@ def handle_customer_event(db: Session, event: MessageEvent, classification: dict
     """
     clinic_key = event.chat_room
 
-    # Find existing open ticket
     ticket = find_open_ticket(db, clinic_key)
-
-    # Get needs_reply from LLM classification (default True if not specified)
     message_needs_reply = classification.get("needs_reply", True)
 
     if ticket:
-        # Link to existing ticket
         link_event_to_ticket(db, ticket.ticket_id, event.event_id)
-
-        # Update timestamps
-        ticket.last_inbound_at = event.received_at
-        ticket.last_message_sender = event.sender_name
-
-        # Update needs_reply based on latest message's LLM classification
-        # The ticket's needs_reply reflects whether the LATEST message needs a response
-        ticket.needs_reply = message_needs_reply
-
-        # If message doesn't need reply (e.g., "감사합니다"), clear SLA breach status
-        if not message_needs_reply:
-            ticket.sla_breached = False
-
-        # Re-inquiry 시 SLA 리셋 (상태는 유지)
-        if message_needs_reply and ticket.first_response_sec is not None:
-            ticket.sla_breached = False
-            ticket.first_inbound_at = event.received_at
-            ticket.first_response_sec = None
-
-        # Upgrade priority if needed
-        new_priority = get_priority_from_urgency(classification.get("urgency", "medium"))
-        if should_upgrade_priority(ticket.priority, new_priority):
-            ticket.priority = new_priority
-
-        # Update summary if provided
-        if classification.get("summary"):
-            ticket.summary_latest = classification["summary"]
-
-        # Update topic
-        if classification.get("topic"):
-            ticket.topic_primary = classification["topic"]
-
-        # Update intent
-        if classification.get("intent"):
-            ticket.intent = classification["intent"]
-
+        apply_customer_classification(ticket, event, classification, message_needs_reply)
     else:
-        # Create new ticket
-        new_priority = get_priority_from_urgency(classification.get("urgency", "medium"))
-        ticket = Ticket(
-            ticket_id=uuid4(),
-            clinic_key=clinic_key,
-            status="onboarding",
-            priority=new_priority,
-            topic_primary=classification.get("topic"),
-            summary_latest=classification.get("summary"),
-            intent=classification.get("intent"),
-            first_inbound_at=event.received_at,
-            last_inbound_at=event.received_at,
-            last_message_sender=event.sender_name,
-            needs_reply=message_needs_reply,  # Set based on LLM classification
-            sla_breached=False
-        )
+        ticket = create_customer_ticket(event, classification, message_needs_reply)
         db.add(ticket)
-        db.flush()  # Get ticket_id
+        db.flush()
 
         link_event_to_ticket(db, ticket.ticket_id, event.event_id)
 
-        # Send urgent alert for new urgent tickets
-        if new_priority in ["urgent", "high"]:
+        if ticket.priority in URGENT_PRIORITIES:
             send_urgent_ticket_alert(
                 str(ticket.ticket_id),
                 clinic_key,
@@ -200,17 +223,7 @@ def handle_staff_event(db: Session, event: MessageEvent):
 
     if not ticket:
         # Edge case: staff message without prior customer inquiry
-        ticket = Ticket(
-            ticket_id=uuid4(),
-            clinic_key=clinic_key,
-            status="onboarding",
-            priority="normal",
-            first_inbound_at=None,
-            last_outbound_at=event.received_at,
-            last_message_sender=event.sender_name,
-            needs_reply=False,  # Staff initiated, no reply needed
-            sla_breached=False
-        )
+        ticket = create_staff_initiated_ticket(event, clinic_key)
         db.add(ticket)
         db.flush()
 
@@ -256,11 +269,8 @@ def check_sla_breaches(db: Session):
         Ticket.needs_reply == True  # Only check SLA for messages that need a reply
     ).all()
 
+    alerted_count = 0
     for ticket in breached_tickets:
-        # Mark as breached
-        ticket.sla_breached = True
-        ticket.sla_alerted_at = now
-
         # Get latest customer message
         latest_event = db.query(MessageEvent).join(
             TicketEventLink,
@@ -283,7 +293,7 @@ def check_sla_breaches(db: Session):
             elapsed_minutes
         )
 
-        # Log alert
+        # Log alert attempt
         alert_log = SLAAlertLog(
             ticket_id=ticket.ticket_id,
             alert_type="slack",
@@ -292,9 +302,16 @@ def check_sla_breaches(db: Session):
         )
         db.add(alert_log)
 
-        logger.info(f"SLA breach alert sent for ticket {ticket.ticket_id}: {ticket.clinic_key}")
+        # Only mark breached after successful alert delivery
+        if success:
+            ticket.sla_breached = True
+            ticket.sla_alerted_at = now
+            alerted_count += 1
+            logger.info(f"SLA breach alert sent for ticket {ticket.ticket_id}: {ticket.clinic_key}")
+        else:
+            logger.warning(f"SLA breach alert FAILED for ticket {ticket.ticket_id}: {error} — will retry next cycle")
 
-    return len(breached_tickets)
+    return alerted_count
 
 
 def process_event(db: Session, event: MessageEvent):

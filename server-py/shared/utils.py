@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional, Tuple
 import pytz
 
-from .constants import SKIP_LLM_PATTERNS, get_needs_reply
+from .constants import COMPILED_SKIP_PATTERNS, get_needs_reply
 
 KST = pytz.timezone("Asia/Seoul")
 
@@ -152,9 +152,9 @@ def match_skip_pattern(text: str) -> Tuple[bool, Optional[str]]:
     """
     text_stripped = text.strip()
     
-    for intent, patterns in SKIP_LLM_PATTERNS.items():
+    for intent, patterns in COMPILED_SKIP_PATTERNS.items():
         for pattern in patterns:
-            if re.match(pattern, text_stripped, re.IGNORECASE):
+            if pattern.match(text_stripped):
                 return True, intent
     
     return False, None

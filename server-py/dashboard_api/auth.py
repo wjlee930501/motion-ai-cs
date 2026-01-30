@@ -4,8 +4,10 @@ Authentication utilities for Dashboard API
 
 from datetime import datetime, timedelta
 from typing import Optional
+
 import hashlib
 
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
@@ -22,13 +24,28 @@ security = HTTPBearer()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash (simple SHA256 for dev)"""
-    return get_password_hash(plain_password) == hashed_password
+    """Verify a password against its bcrypt hash.
+
+    Also accepts legacy SHA256 hashes for backward compatibility
+    during migration period.
+    """
+    # Try bcrypt first
+    try:
+        if bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8")):
+            return True
+    except (ValueError, TypeError):
+        pass
+
+    # Fallback: check legacy SHA256 hash for existing accounts
+    if hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password:
+        return True
+
+    return False
 
 
 def get_password_hash(password: str) -> str:
-    """Generate password hash (simple SHA256 for dev)"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Generate bcrypt password hash."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -77,12 +94,21 @@ async def get_current_user(
 
 
 def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
-    """Authenticate user with email and password"""
+    """Authenticate user with email and password.
+
+    Auto-upgrades legacy SHA256 hashes to bcrypt on successful login.
+    """
     user = db.query(User).filter(User.email == email).first()
     if not user:
         return None
     if not verify_password(password, user.password_hash):
         return None
+
+    # Auto-upgrade legacy SHA256 hash to bcrypt
+    if not user.password_hash.startswith("$2b$"):
+        user.password_hash = get_password_hash(password)
+        db.commit()
+
     return user
 
 

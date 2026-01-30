@@ -108,14 +108,17 @@ async def lifespan(app: FastAPI):
     try:
         admin = db.query(User).filter(User.email == "admin").first()
         if not admin:
+            default_admin_pw = os.environ.get("ADMIN_DEFAULT_PASSWORD", "1234")
             admin = User(
                 email="admin",
-                password_hash=get_password_hash("1234"),
+                password_hash=get_password_hash(default_admin_pw),
                 name="관리자",
                 role="admin",
             )
             db.add(admin)
             db.commit()
+            if default_admin_pw == "1234":
+                print("[WARN] Admin created with default password '1234'. Set ADMIN_DEFAULT_PASSWORD env var for production.")
         elif admin.role != "admin":
             # Ensure existing admin account has admin role
             admin.role = "admin"
