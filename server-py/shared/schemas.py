@@ -431,3 +431,47 @@ class InsightsResponse(BaseModel):
     version: int
     created_at: datetime
     insights: Optional[dict] = None
+
+
+# ============================================
+# Dashboard API - Staff Response Analytics
+# ============================================
+
+
+class StaffResponseItem(BaseModel):
+    id: int
+    event_id: UUID
+    ticket_id: UUID
+    staff_member: str
+    clinic_key: str
+    responding_to_event_id: Optional[UUID] = None
+    customer_text_snippet: Optional[str] = None
+    customer_intent: Optional[str] = None
+    customer_topic: Optional[str] = None
+    response_text_snippet: Optional[str] = None
+    response_delay_sec: Optional[int] = None
+    response_position: int
+    message_length: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class StaffResponseLogResponse(BaseModel):
+    ok: bool = True
+    responses: list[StaffResponseItem]
+    total: int
+
+
+class StaffResponseStatsItem(BaseModel):
+    staff_member: str
+    total_responses: int
+    avg_response_delay_sec: Optional[float] = None
+    avg_message_length: Optional[float] = None
+    first_response_count: int = 0  # response_position=1 인 건수
+
+
+class StaffResponseStatsResponse(BaseModel):
+    ok: bool = True
+    stats: list[StaffResponseStatsItem]

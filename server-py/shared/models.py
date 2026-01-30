@@ -434,6 +434,47 @@ class ClassificationFeedback(Base):
     )
 
 
+class StaffResponseLog(Base):
+    """직원 응답 패턴 수집 로그 — 직원이 고객 문의에 어떻게 응답하는지 기록"""
+
+    __tablename__ = "staff_response_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_id = Column(
+        GUID(), ForeignKey("message_event.event_id", ondelete="CASCADE"), nullable=False
+    )
+    ticket_id = Column(
+        GUID(), ForeignKey("ticket.ticket_id", ondelete="CASCADE"), nullable=False
+    )
+    staff_member = Column(Text, nullable=False)  # 직원 이름 (예: '이우진')
+    clinic_key = Column(Text, nullable=False)  # 채팅방 (병원)
+
+    # 응답 컨텍스트
+    responding_to_event_id = Column(
+        GUID(), ForeignKey("message_event.event_id", ondelete="SET NULL"), nullable=True
+    )  # 직전 고객 메시지
+    customer_text_snippet = Column(Text, nullable=True)  # 고객 메시지 앞 100자
+    customer_intent = Column(Text, nullable=True)  # LLM 분류 의도
+    customer_topic = Column(Text, nullable=True)  # 고객 메시지 주제
+
+    # 응답 메타데이터
+    response_text_snippet = Column(Text, nullable=True)  # 직원 응답 앞 200자
+    response_delay_sec = Column(Integer, nullable=True)  # 응답까지 걸린 초
+    response_position = Column(Integer, nullable=False, default=1)  # 대화 내 몇 번째 직원 응답
+    message_length = Column(Integer, nullable=False, default=0)  # 응답 메시지 길이
+
+    created_at = Column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_staff_response_staff_member", "staff_member"),
+        Index("ix_staff_response_clinic", "clinic_key"),
+        Index("ix_staff_response_created", "created_at"),
+        Index("ix_staff_response_ticket", "ticket_id"),
+    )
+
+
 class PatternApplicationLog(Base):
     """패턴 적용 로그 - 학습에서 추출된 패턴의 승인/적용 이력"""
 

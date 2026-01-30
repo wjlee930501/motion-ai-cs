@@ -27,6 +27,7 @@ from shared.models import (
     MessageTemplate,
     ClassificationFeedback,
     PatternApplicationLog,
+    StaffResponseLog,
 )
 from shared.schemas import (
     LoginRequest,
@@ -59,6 +60,11 @@ from shared.schemas import (
     TemplateUpdate,
     TemplateDeleteResponse,
     TemplateCopyResponse,
+    # Staff Response Analytics Schemas
+    StaffResponseItem,
+    StaffResponseLogResponse,
+    StaffResponseStatsItem,
+    StaffResponseStatsResponse,
     # Learning System v2 Schemas
     FeedbackCreate,
     FeedbackItem,
@@ -73,7 +79,7 @@ from shared.schemas import (
 )
 from shared.utils import get_kst_now, calculate_sla_remaining_sec
 from shared.config import get_settings
-from shared.migrations import run_column_migrations
+from shared.migrations import run_column_migrations, run_table_migrations
 from shared.constants import (
     TEMPLATE_CATEGORIES,
     TICKET_STATUSES,
@@ -101,6 +107,7 @@ async def lifespan(app: FastAPI):
     db = next(get_db())
     try:
         run_column_migrations(db)
+        run_table_migrations(db)
     except Exception as e:
         import logging
         import traceback
@@ -1679,6 +1686,95 @@ async def get_learning_insights(
         version=understanding.version,
         created_at=understanding.created_at,
         insights=understanding.key_insights,
+    )
+
+
+# ============================================
+# Staff Response Analytics Endpoints
+# ============================================
+
+
+@app.get("/v1/staff/response-stats", response_model=StaffResponseStatsResponse)
+async def get_staff_response_stats(
+    days: int = Query(30, ge=1, le=365, description="Period in days"),
+    clinic_key: Optional[str] = Query(None, description="Filter by clinic"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get per-staff response statistics (total responses, avg delay, avg length)"""
+    from datetime import timedelta
+
+    now = get_kst_now()
+    since = now - timedelta(days=days)
+
+    query = db.query(
+        StaffResponseLog.staff_member,
+        func.count(StaffResponseLog.id).label("total_responses"),
+        func.avg(StaffResponseLog.response_delay_sec).label("avg_response_delay_sec"),
+        func.avg(StaffResponseLog.message_length).label("avg_message_length"),
+        func.count(
+            case(
+                (StaffResponseLog.response_position == 1, StaffResponseLog.id),
+            )
+        ).label("first_response_count"),
+    ).filter(
+        StaffResponseLog.created_at >= since,
+    )
+
+    if clinic_key:
+        query = query.filter(StaffResponseLog.clinic_key == clinic_key)
+
+    query = query.group_by(StaffResponseLog.staff_member).order_by(
+        func.count(StaffResponseLog.id).desc()
+    )
+
+    rows = query.all()
+
+    stats = [
+        StaffResponseStatsItem(
+            staff_member=row.staff_member,
+            total_responses=row.total_responses,
+            avg_response_delay_sec=round(float(row.avg_response_delay_sec), 1) if row.avg_response_delay_sec else None,
+            avg_message_length=round(float(row.avg_message_length), 1) if row.avg_message_length else None,
+            first_response_count=row.first_response_count or 0,
+        )
+        for row in rows
+    ]
+
+    return StaffResponseStatsResponse(ok=True, stats=stats)
+
+
+@app.get("/v1/staff/response-log", response_model=StaffResponseLogResponse)
+async def get_staff_response_log(
+    staff_member: Optional[str] = Query(None, description="Filter by staff name"),
+    clinic_key: Optional[str] = Query(None, description="Filter by clinic"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get recent staff response log entries with pagination"""
+    query = db.query(StaffResponseLog)
+
+    if staff_member:
+        query = query.filter(StaffResponseLog.staff_member == staff_member)
+
+    if clinic_key:
+        query = query.filter(StaffResponseLog.clinic_key == clinic_key)
+
+    total = query.count()
+
+    responses = (
+        query.order_by(StaffResponseLog.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return StaffResponseLogResponse(
+        ok=True,
+        responses=[StaffResponseItem.model_validate(r) for r in responses],
+        total=total,
     )
 
 

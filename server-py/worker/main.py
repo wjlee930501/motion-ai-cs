@@ -25,10 +25,10 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from shared.database import SessionLocal, engine, Base
-from shared.models import MessageEvent, Ticket, TicketEventLink, LLMAnnotation, SLAAlertLog
+from shared.models import MessageEvent, Ticket, TicketEventLink, LLMAnnotation, SLAAlertLog, StaffResponseLog
 from shared.config import get_settings
 from shared.utils import get_kst_now
-from shared.migrations import run_column_migrations, drop_old_status_constraint, migrate_ticket_status, fix_existing_tickets_needs_reply
+from shared.migrations import run_column_migrations, drop_old_status_constraint, migrate_ticket_status, fix_existing_tickets_needs_reply, run_table_migrations
 
 from .llm import classify_event, summarize_ticket, get_priority_from_urgency, should_upgrade_priority
 from .slack import send_sla_alert, send_urgent_ticket_alert
@@ -247,7 +247,100 @@ def handle_staff_event(db: Session, event: MessageEvent):
 
     # Status는 고객 lifecycle 단계이므로 자동 변경하지 않음 (수동으로 관리)
 
+    # Record staff response for analytics (non-blocking)
+    record_staff_response(db, event, ticket)
+
     return ticket
+
+
+def record_staff_response(db: Session, event: MessageEvent, ticket: Ticket):
+    """
+    Record staff response context for analytics.
+
+    Captures: which customer message was responded to, response delay,
+    response position in conversation, and text snippets for quick lookup.
+
+    Non-blocking: failures are logged but don't affect event processing.
+    """
+    try:
+        # 1. Find the most recent customer (inbound) message in this ticket
+        last_customer_event = (
+            db.query(MessageEvent)
+            .join(TicketEventLink, TicketEventLink.event_id == MessageEvent.event_id)
+            .filter(
+                TicketEventLink.ticket_id == ticket.ticket_id,
+                MessageEvent.sender_type == "customer",
+                MessageEvent.received_at < event.received_at,
+            )
+            .order_by(MessageEvent.received_at.desc())
+            .first()
+        )
+
+        # 2. Get LLM annotation for the customer message (intent, topic)
+        customer_intent = None
+        customer_topic = None
+        customer_text_snippet = None
+        responding_to_event_id = None
+        response_delay_sec = None
+
+        if last_customer_event:
+            responding_to_event_id = last_customer_event.event_id
+            customer_text_snippet = last_customer_event.text_raw[:100] if last_customer_event.text_raw else None
+
+            # Calculate response delay
+            if last_customer_event.received_at and event.received_at:
+                delay = event.received_at - last_customer_event.received_at
+                response_delay_sec = int(delay.total_seconds())
+
+            # Get LLM annotation
+            annotation = (
+                db.query(LLMAnnotation)
+                .filter(
+                    LLMAnnotation.target_type == "event",
+                    LLMAnnotation.target_id == last_customer_event.event_id,
+                )
+                .first()
+            )
+            if annotation:
+                customer_intent = annotation.intent
+                customer_topic = annotation.topic
+
+        # 3. Calculate response_position: how many staff responses in this ticket before this one
+        from sqlalchemy import func
+
+        prior_staff_count = (
+            db.query(func.count(StaffResponseLog.id))
+            .filter(StaffResponseLog.ticket_id == ticket.ticket_id)
+            .scalar()
+            or 0
+        )
+        response_position = prior_staff_count + 1
+
+        # 4. Create the log record
+        staff_name = event.staff_member or event.sender_name
+        log_entry = StaffResponseLog(
+            event_id=event.event_id,
+            ticket_id=ticket.ticket_id,
+            staff_member=staff_name,
+            clinic_key=event.chat_room,
+            responding_to_event_id=responding_to_event_id,
+            customer_text_snippet=customer_text_snippet,
+            customer_intent=customer_intent,
+            customer_topic=customer_topic,
+            response_text_snippet=event.text_raw[:200] if event.text_raw else None,
+            response_delay_sec=response_delay_sec,
+            response_position=response_position,
+            message_length=len(event.text_raw) if event.text_raw else 0,
+        )
+        db.add(log_entry)
+        logger.info(
+            f"StaffResponseLog: {staff_name} responded to ticket {ticket.ticket_id} "
+            f"(position={response_position}, delay={response_delay_sec}s)"
+        )
+
+    except Exception as e:
+        logger.error(f"[StaffResponseLog] Failed to record response: {e}")
+        # Non-blocking: don't re-raise, just log
 
 
 def check_sla_breaches(db: Session):
@@ -425,6 +518,7 @@ async def lifespan(app: FastAPI):
         drop_old_status_constraint(db)
         migrate_ticket_status(db)
         fix_existing_tickets_needs_reply(db)
+        run_table_migrations(db)
     except Exception as e:
         logger.error(f"Startup error: {e}")
     finally:

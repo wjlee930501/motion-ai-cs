@@ -148,9 +148,63 @@ def fix_existing_tickets_needs_reply(db: Session) -> None:
         logger.error(traceback.format_exc())
 
 
+def run_table_migrations(db: Session) -> None:
+    """Create new tables if they don't exist"""
+    tables_to_create = [
+        (
+            "staff_response_log",
+            """
+            CREATE TABLE staff_response_log (
+                id SERIAL PRIMARY KEY,
+                event_id UUID NOT NULL REFERENCES message_event(event_id) ON DELETE CASCADE,
+                ticket_id UUID NOT NULL REFERENCES ticket(ticket_id) ON DELETE CASCADE,
+                staff_member TEXT NOT NULL,
+                clinic_key TEXT NOT NULL,
+                responding_to_event_id UUID REFERENCES message_event(event_id) ON DELETE SET NULL,
+                customer_text_snippet TEXT,
+                customer_intent TEXT,
+                customer_topic TEXT,
+                response_text_snippet TEXT,
+                response_delay_sec INTEGER,
+                response_position INTEGER NOT NULL DEFAULT 1,
+                message_length INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
+            [
+                "CREATE INDEX IF NOT EXISTS ix_staff_response_staff_member ON staff_response_log(staff_member)",
+                "CREATE INDEX IF NOT EXISTS ix_staff_response_clinic ON staff_response_log(clinic_key)",
+                "CREATE INDEX IF NOT EXISTS ix_staff_response_created ON staff_response_log(created_at)",
+                "CREATE INDEX IF NOT EXISTS ix_staff_response_ticket ON staff_response_log(ticket_id)",
+            ],
+        ),
+    ]
+
+    for table_name, create_sql, index_sqls in tables_to_create:
+        try:
+            check_sql = text("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_name = :table_name
+            """)
+            result = db.execute(check_sql, {"table_name": table_name}).fetchone()
+            if not result:
+                db.execute(text(create_sql))
+                for idx_sql in index_sqls:
+                    db.execute(text(idx_sql))
+                db.commit()
+                logger.info(f"Migration: Created table {table_name} with indexes")
+            else:
+                logger.info(f"Migration: Table {table_name} already exists")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"[CRITICAL] Migration failed for table {table_name}: {e}")
+            logger.error(traceback.format_exc())
+
+
 def run_all_migrations(db: Session) -> None:
     """Run all database migrations in order"""
     run_column_migrations(db)
     drop_old_status_constraint(db)
     migrate_ticket_status(db)
     fix_existing_tickets_needs_reply(db)
+    run_table_migrations(db)
