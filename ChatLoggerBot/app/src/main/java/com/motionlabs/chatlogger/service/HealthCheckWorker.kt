@@ -22,7 +22,7 @@ class HealthCheckWorker(
         private const val TAG = "HealthCheckWorker"
         private const val SYNCED_RETENTION_DAYS = 7    // 동기화된 메시지 보관 기간
         private const val UNSYNCED_RETENTION_DAYS = 30 // 미동기화 메시지 최대 보관 기간
-        private const val MAX_RETRY_COUNT = 10         // 최대 재시도 횟수
+        private const val MAX_RETRY_COUNT = 100        // 최대 재시도 횟수 (15분 간격 × 100 = 약 25시간)
     }
 
     private val settingsManager = SettingsManager.getInstance(context)
@@ -35,6 +35,12 @@ class HealthCheckWorker(
             // Check if ForegroundService is running, restart if needed
             if (!isServiceRunning()) {
                 startForegroundService()
+            }
+
+            // NotificationListenerService 활성 상태 확인
+            if (!isNotificationListenerEnabled()) {
+                Log.e(TAG, "CRITICAL: NotificationListenerService is NOT enabled! Messages will be lost!")
+                showNotificationListenerWarning()
             }
 
             // Send heartbeat to backend server
@@ -70,6 +76,14 @@ class HealthCheckWorker(
         }
     }
 
+    private fun isNotificationListenerEnabled(): Boolean {
+        val flat = android.provider.Settings.Secure.getString(
+            applicationContext.contentResolver,
+            "enabled_notification_listeners"
+        )
+        return flat?.contains(applicationContext.packageName) == true
+    }
+
     private suspend fun sendHeartbeat() {
         if (!settingsManager.backendEnabled) {
             Log.d(TAG, "Backend sync disabled, skipping heartbeat")
@@ -96,6 +110,40 @@ class HealthCheckWorker(
             applicationContext.startService(serviceIntent)
         }
         Log.d(TAG, "ForegroundService restarted")
+    }
+
+    private fun showNotificationListenerWarning() {
+        try {
+            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    "warning_channel",
+                    "경고 알림",
+                    android.app.NotificationManager.IMPORTANCE_HIGH
+                )
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val intent = Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                applicationContext, 0, intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = androidx.core.app.NotificationCompat.Builder(applicationContext, "warning_channel")
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle("알림 수신 중단됨")
+                .setContentText("알림 접근 권한을 다시 활성화해주세요")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build()
+
+            notificationManager.notify(9999, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show warning notification: ${e.message}")
+        }
     }
 
     /**

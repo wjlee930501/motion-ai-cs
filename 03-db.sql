@@ -1,3 +1,8 @@
+-- ⚠️ LEGACY: 이 파일은 초기 설계 문서입니다.
+-- 실제 스키마는 server-py/shared/models.py (SQLAlchemy)가 단일 소스입니다.
+-- 이 파일의 status 값('new','in_progress','waiting','done')은 더 이상 사용되지 않습니다.
+-- 현재 status 값: 'onboarding','stable','churn_risk','important'
+
 -- MotionLabs KakaoTalk CS Intelligence System v1.0
 -- Database Schema (PostgreSQL 15+)
 

@@ -56,7 +56,13 @@ class NotificationParser {
             // 그룹 요약 알림인지 확인 (FLAG_GROUP_SUMMARY)
             val isGroupSummary = (notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
             if (isGroupSummary) {
-                Log.d(TAG, "Skipping group summary notification")
+                Log.d(TAG, "Group summary notification detected, attempting to extract messages")
+                // GROUP_SUMMARY에서도 메시지 추출 시도 (일부 OEM/카카오톡 버전에서 필요)
+                val summaryMessages = tryExtractFromGroupSummary(notification, extras)
+                if (summaryMessages.isNotEmpty()) {
+                    return ParseResult(summaryMessages, rawJson)
+                }
+                Log.d(TAG, "No messages extracted from group summary, skipping")
                 return ParseResult(emptyList(), rawJson)
             }
 
@@ -209,6 +215,37 @@ class NotificationParser {
         } catch (e: Exception) {
             "Error getting debug info: ${e.message}"
         }
+    }
+
+    private fun tryExtractFromGroupSummary(notification: Notification, extras: Bundle): List<ParsedNotification> {
+        val results = mutableListOf<ParsedNotification>()
+        try {
+            // android.textLines에서 메시지 추출 시도
+            val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            if (lines != null && lines.isNotEmpty()) {
+                val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: "Unknown"
+                for (line in lines) {
+                    val lineStr = line?.toString() ?: continue
+                    // 카카오톡 그룹 알림: "sender: message" 형태
+                    val colonIdx = lineStr.indexOf(':')
+                    if (colonIdx > 0) {
+                        val sender = lineStr.substring(0, colonIdx).trim()
+                        val message = lineStr.substring(colonIdx + 1).trim()
+                        if (message.isNotEmpty()) {
+                            results.add(ParsedNotification(
+                                roomName = title,
+                                sender = sender,
+                                message = message,
+                                isGroup = true
+                            ))
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to extract from group summary: ${e.message}")
+        }
+        return results
     }
 
     private fun convertExtrasToJson(extras: Bundle): String {

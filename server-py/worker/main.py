@@ -371,6 +371,13 @@ def run_worker_cycle(db: Session):
             except Exception as e:
                 db.rollback()
                 logger.error(f"Failed to process event {event.event_id}: {e}")
+                # 에러 상태를 별도 트랜잭션으로 저장 (poison pill 방지)
+                try:
+                    event.ingest_status = "error"
+                    db.commit()
+                except Exception as status_err:
+                    db.rollback()
+                    logger.error(f"Failed to update error status for {event.event_id}: {status_err}")
 
     # Check SLA breaches
     breach_count = check_sla_breaches(db)

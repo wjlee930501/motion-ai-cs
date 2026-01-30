@@ -5,6 +5,7 @@ Consolidates migration logic used by both dashboard_api and worker.
 """
 
 import logging
+import traceback
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -38,7 +39,8 @@ def run_column_migrations(db: Session) -> None:
                 logger.info(f"Migration: Added {column} to {table}")
         except Exception as e:
             db.rollback()
-            logger.error(f"Migration error for {table}.{column}: {e}")
+            logger.error(f"[CRITICAL] Migration failed for {table}.{column}: {e}")
+            logger.error(traceback.format_exc())
 
 
 def drop_old_status_constraint(db: Session) -> None:
@@ -49,7 +51,8 @@ def drop_old_status_constraint(db: Session) -> None:
         logger.info("Migration: Dropped old status constraint")
     except Exception as e:
         db.rollback()
-        logger.error(f"Migration error dropping status constraint: {e}")
+        logger.error(f"[CRITICAL] Migration failed dropping status constraint: {e}")
+        logger.error(traceback.format_exc())
 
 
 def migrate_ticket_status(db: Session) -> None:
@@ -92,7 +95,8 @@ def migrate_ticket_status(db: Session) -> None:
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Status migration error: {e}")
+        logger.error(f"[CRITICAL] Migration failed (status migration): {e}")
+        logger.error(traceback.format_exc())
 
 
 def fix_existing_tickets_needs_reply(db: Session) -> None:
@@ -136,7 +140,8 @@ def fix_existing_tickets_needs_reply(db: Session) -> None:
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Fix existing tickets error: {e}")
+        logger.error(f"[CRITICAL] Migration failed (fix existing tickets): {e}")
+        logger.error(traceback.format_exc())
 
 
 def run_all_migrations(db: Session) -> None:

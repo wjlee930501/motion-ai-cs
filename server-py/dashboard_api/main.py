@@ -99,7 +99,11 @@ async def lifespan(app: FastAPI):
     try:
         run_column_migrations(db)
     except Exception as e:
-        print(f"Migration error: {e}")
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        logger.error(f"[CRITICAL] Migration failed: {e}")
+        logger.error(traceback.format_exc())
     finally:
         db.close()
 

@@ -350,6 +350,13 @@ class KakaoNotificationListener : NotificationListenerService() {
         synchronized(processedMessages) {
             processedMessages.clear()
         }
+        // 자동 재연결 시도
+        try {
+            requestRebind(android.content.ComponentName(this, KakaoNotificationListener::class.java))
+            Log.i(TAG, "Requested rebind to NotificationListenerService")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to request rebind: ${e.message}")
+        }
     }
 
     override fun onDestroy() {

@@ -39,13 +39,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         // Request permissions
         requestPermissions()
-        
+
+        // Check battery optimization
+        checkBatteryOptimization()
+
         // Start services
         startServices()
-        
+
         setContent {
             ChatLoggerBotTheme {
                 Surface(
@@ -95,6 +98,22 @@ class MainActivity : ComponentActivity() {
         scheduleHealthCheckWorker()
     }
     
+    private fun checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = android.net.Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "Failed to request battery optimization exemption: ${e.message}")
+                }
+            }
+        }
+    }
+
     private fun scheduleHealthCheckWorker() {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.NOT_REQUIRED)

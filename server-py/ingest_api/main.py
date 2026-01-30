@@ -7,6 +7,7 @@ Endpoints:
 """
 
 import os
+import logging
 from uuid import uuid4
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -21,6 +22,9 @@ from shared.models import MessageEvent, DeviceHeartbeat
 from shared.schemas import EventCreate, EventResponse, HeartbeatRequest, HeartbeatResponse, ErrorResponse
 from shared.utils import classify_sender, get_bucket_ts, hash_text, get_kst_now
 from shared.config import get_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 settings = get_settings()
@@ -132,6 +136,14 @@ async def create_event(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"ok": False, "error": {"code": "INTERNAL_ERROR", "message": "Dedup conflict"}}
+        )
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Database write failed for event {event_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"ok": False, "error": {"code": "DB_WRITE_ERROR", "message": str(e)}}
         )
 
 
