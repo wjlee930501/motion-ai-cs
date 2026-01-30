@@ -19,8 +19,8 @@ class SettingsManager(context: Context) {
         private const val KEY_AUTO_DISMISS_NOTIFICATIONS = "auto_dismiss_notifications"
 
         // Default values
-        const val DEFAULT_BACKEND_URL = "http://192.168.1.100:8001"
-        const val DEFAULT_DEVICE_KEY = "local-dev-key"
+        const val DEFAULT_BACKEND_URL = "https://cs-ingest-api-obmkspcd3q-du.a.run.app"
+        const val DEFAULT_DEVICE_KEY = "k1iycn17S3S92jqWnPoDqmzdYpSD83hr"
         const val DEFAULT_HEARTBEAT_INTERVAL = 60 // seconds
 
         @Volatile
