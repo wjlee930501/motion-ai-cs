@@ -1,0 +1,36 @@
+# Python
+server-py/.venv/
+server-py/__pycache__/
+**/__pycache__/
+*.pyc
+
+# Node
+**/node_modules/
+ChatLoggerWeb/dist/
+
+# Android build artifacts
+ChatLoggerBot/.gradle/
+ChatLoggerBot/build/
+ChatLoggerBot/app/build/
+ChatLoggerBot/**/*.apk
+
+# IDE and tools
+.idea/
+.vscode/
+.omc/
+.sisyphus/
+*.swp
+*.swo
+
+# Git
+.git/
+
+# Terraform
+gcp/terraform/.terraform/
+gcp/terraform/*.tfstate*
+
+# Misc
+*.log
+.env
+.env.*
+!.env.example
