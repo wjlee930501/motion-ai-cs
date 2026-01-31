@@ -76,19 +76,24 @@ def get_bucket_ts(ts: datetime) -> datetime:
     return minute_start.replace(second=bucket_offset)
 
 
-def hash_text(chat_room: str, sender_name: str, text: str) -> str:
+def hash_text(chat_room: str, sender_name: str, text: str, received_at: Optional[datetime] = None) -> str:
     """
     Generate SHA256 hash for message deduplication.
+
+    Includes received_at (second precision) to prevent loss of repeated
+    short messages like "네", "확인" sent at different times.
 
     Args:
         chat_room: Chat room name
         sender_name: Sender name
         text: Message text
+        received_at: Message timestamp (second precision used for dedup)
 
     Returns:
         SHA256 hex digest
     """
-    content = f"{chat_room}|{sender_name}|{text}"
+    ts_part = received_at.strftime("%Y%m%d%H%M%S") if received_at else ""
+    content = f"{chat_room}|{sender_name}|{text}|{ts_part}"
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
@@ -194,7 +199,7 @@ def load_dynamic_patterns() -> Dict[str, List[re.Pattern]]:
 
         db = SessionLocal()
         approved_patterns = db.query(PatternApplicationLog).filter(
-            PatternApplicationLog.status == "approved",
+            PatternApplicationLog.status.in_(["approved", "applied"]),
             PatternApplicationLog.pattern_type == "skip_llm",
         ).limit(_MAX_DYNAMIC_PATTERNS).all()
 

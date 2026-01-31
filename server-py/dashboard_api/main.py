@@ -122,7 +122,18 @@ async def lifespan(app: FastAPI):
     try:
         admin = db.query(User).filter(User.email == "admin").first()
         if not admin:
-            default_admin_pw = os.environ.get("ADMIN_DEFAULT_PASSWORD", "1234")
+            is_production = os.environ.get("ENV", "").lower() in ("production", "prod")
+            default_admin_pw = os.environ.get("ADMIN_DEFAULT_PASSWORD", "")
+
+            if not default_admin_pw:
+                if is_production:
+                    raise RuntimeError(
+                        "FATAL: ADMIN_DEFAULT_PASSWORD is not set. "
+                        "Set the ADMIN_DEFAULT_PASSWORD environment variable before running in production."
+                    )
+                default_admin_pw = "1234"
+                logger.warning("Admin created with default password '1234'. Set ADMIN_DEFAULT_PASSWORD env var for production.")
+
             admin = User(
                 email="admin",
                 password_hash=get_password_hash(default_admin_pw),
@@ -131,8 +142,6 @@ async def lifespan(app: FastAPI):
             )
             db.add(admin)
             db.commit()
-            if default_admin_pw == "1234":
-                logger.warning("Admin created with default password '1234'. Set ADMIN_DEFAULT_PASSWORD env var for production.")
         elif admin.role != "admin":
             # Ensure existing admin account has admin role
             admin.role = "admin"
@@ -862,8 +871,10 @@ async def trigger_learning_cycle(
     worker_url = os.environ.get("WORKER_URL", "http://localhost:8080")
 
     try:
+        worker_secret = os.environ.get("WORKER_SECRET", "")
+        headers = {"X-Worker-Secret": worker_secret} if worker_secret else {}
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(f"{worker_url}/learning/run")
+            response = await client.post(f"{worker_url}/learning/run", headers=headers)
             if response.status_code == 200:
                 return response.json()
             else:

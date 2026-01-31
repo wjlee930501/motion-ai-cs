@@ -201,6 +201,46 @@ def run_table_migrations(db: Session) -> None:
             logger.error(traceback.format_exc())
 
 
+def migrate_dedup_index(db: Session) -> None:
+    """Replace old dedup index with v2 that includes received_at in hash.
+
+    Old: ux_message_event_dedup (text_hash, bucket_ts) — caused loss of repeated short messages
+    New: ux_message_event_dedup_v2 (text_hash, bucket_ts) — hash now includes received_at seconds
+    """
+    try:
+        # Check if old index exists
+        check_sql = text("""
+            SELECT indexname FROM pg_indexes
+            WHERE tablename = 'message_event' AND indexname = 'ux_message_event_dedup'
+        """)
+        result = db.execute(check_sql).fetchone()
+        if result:
+            db.execute(text("DROP INDEX IF EXISTS ux_message_event_dedup"))
+            db.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_message_event_dedup_v2 "
+                "ON message_event(text_hash, bucket_ts)"
+            ))
+            db.commit()
+            logger.info("Migration: Replaced ux_message_event_dedup with ux_message_event_dedup_v2")
+        else:
+            # Check if v2 exists
+            check_v2 = text("""
+                SELECT indexname FROM pg_indexes
+                WHERE tablename = 'message_event' AND indexname = 'ux_message_event_dedup_v2'
+            """)
+            if not db.execute(check_v2).fetchone():
+                db.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_message_event_dedup_v2 "
+                    "ON message_event(text_hash, bucket_ts)"
+                ))
+                db.commit()
+                logger.info("Migration: Created ux_message_event_dedup_v2")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[CRITICAL] Migration failed for dedup index: {e}")
+        logger.error(traceback.format_exc())
+
+
 def run_all_migrations(db: Session) -> None:
     """Run all database migrations in order"""
     run_column_migrations(db)
@@ -208,3 +248,4 @@ def run_all_migrations(db: Session) -> None:
     migrate_ticket_status(db)
     fix_existing_tickets_needs_reply(db)
     run_table_migrations(db)
+    migrate_dedup_index(db)

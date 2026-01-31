@@ -112,7 +112,7 @@ class MessageEvent(Base):
     __table_args__ = (
         CheckConstraint("sender_type IN ('staff', 'customer')", name="ck_sender_type"),
         CheckConstraint("direction IN ('inbound', 'outbound')", name="ck_direction"),
-        Index("ux_message_event_dedup", "text_hash", "bucket_ts", unique=True),
+        Index("ux_message_event_dedup_v2", "text_hash", "bucket_ts", unique=True),
         Index("ix_message_event_room_time", "chat_room", "received_at"),
         Index("ix_message_event_sender_type_time", "sender_type", "received_at"),
         Index("ix_message_event_created", "created_at"),

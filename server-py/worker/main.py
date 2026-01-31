@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 
 from sqlalchemy.orm import Session
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from contextlib import asynccontextmanager
 
 from shared.database import SessionLocal, engine, Base
@@ -54,7 +54,7 @@ def get_unprocessed_events(db: Session, limit: int = 50) -> list[MessageEvent]:
     when multiple worker instances run concurrently.
     """
     return db.query(MessageEvent).filter(
-        MessageEvent.ingest_status == "received"
+        MessageEvent.ingest_status == "received"  # 'processing' 상태는 다른 워커가 처리 중
     ).order_by(
         MessageEvent.received_at.asc()
     ).limit(limit).with_for_update(skip_locked=True).all()
@@ -450,13 +450,27 @@ def process_event(db: Session, event: MessageEvent):
 
 
 def run_worker_cycle(db: Session):
-    """Run one cycle of the worker"""
+    """Run one cycle of the worker
+
+    Race condition 방지:
+    1. FOR UPDATE SKIP LOCKED로 이벤트 조회
+    2. 즉시 ingest_status='processing'으로 일괄 마킹 + 커밋 (락 해제)
+    3. 이후 개별 처리 — 다른 워커는 'processing' 상태를 건너뜀
+    """
     # Process new events
     events = get_unprocessed_events(db, limit=50)
 
     if events:
         logger.info(f"Processing {len(events)} events...")
 
+        # Step 1: 즉시 processing으로 마킹하여 다른 워커가 잡지 못하게 함
+        event_ids = []
+        for event in events:
+            event.ingest_status = "processing"
+            event_ids.append(event.event_id)
+        db.commit()
+
+        # Step 2: 개별 처리 (이미 processing으로 마킹되어 다른 워커와 충돌 없음)
         for event in events:
             try:
                 process_event(db, event)
@@ -573,8 +587,19 @@ async def root():
 
 
 @app.post("/learning/run")
-async def trigger_learning():
-    """Trigger manual learning cycle - called by Dashboard API"""
+async def trigger_learning(x_worker_secret: Optional[str] = Header(None)):
+    """Trigger manual learning cycle - called by Dashboard API.
+
+    Requires X-Worker-Secret header matching WORKER_SECRET env var.
+    """
+    expected_secret = os.environ.get("WORKER_SECRET", "")
+    if not expected_secret or x_worker_secret != expected_secret:
+        from fastapi import HTTPException, status as http_status
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail={"ok": False, "error": {"code": "UNAUTHORIZED", "message": "Invalid or missing worker secret"}}
+        )
+
     import threading
     from .learning import run_learning_cycle_manual
 

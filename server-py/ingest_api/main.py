@@ -92,7 +92,7 @@ async def create_event(
     direction = "outbound" if sender_type == "staff" else "inbound"
 
     # Generate dedup hash and bucket timestamp
-    text_hash = hash_text(event.chat_room, event.sender_name, event.text)
+    text_hash = hash_text(event.chat_room, event.sender_name, event.text, event.received_at)
     bucket_ts = get_bucket_ts(event.received_at)
 
     # Create event record
