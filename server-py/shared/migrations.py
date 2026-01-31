@@ -32,6 +32,11 @@ COLUMN_MIGRATIONS = [
     ("pattern_application_log", "auto_approved", "ALTER TABLE pattern_application_log ADD COLUMN auto_approved BOOLEAN NOT NULL DEFAULT FALSE"),
     ("cs_understanding", "accuracy_score", "ALTER TABLE cs_understanding ADD COLUMN accuracy_score NUMERIC"),
     ("cs_understanding", "auto_approved_patterns_count", "ALTER TABLE cs_understanding ADD COLUMN auto_approved_patterns_count INTEGER DEFAULT 0"),
+    # 004: Resolution tracking + highlights
+    ("ticket", "resolution_status", "ALTER TABLE ticket ADD COLUMN resolution_status TEXT"),
+    ("ticket", "resolved_at", "ALTER TABLE ticket ADD COLUMN resolved_at TIMESTAMPTZ"),
+    ("staff_response_log", "is_highlighted", "ALTER TABLE staff_response_log ADD COLUMN is_highlighted BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("staff_response_log", "highlight_reason", "ALTER TABLE staff_response_log ADD COLUMN highlight_reason TEXT"),
 ]
 
 
@@ -236,6 +241,49 @@ def run_table_migrations(db: Session) -> None:
                 "CREATE INDEX IF NOT EXISTS ix_staff_analysis_exec_at ON staff_analysis_execution(executed_at)",
             ],
         ),
+        (
+            "clinic_profile",
+            """
+            CREATE TABLE clinic_profile (
+                clinic_key TEXT PRIMARY KEY,
+                sentiment_avg NUMERIC(3,2),
+                complaint_ratio NUMERIC(3,2),
+                urgency_avg NUMERIC(3,2),
+                escalation_tendency NUMERIC(3,2),
+                recontact_rate NUMERIC(3,2),
+                profile_label TEXT,
+                total_interactions INTEGER NOT NULL DEFAULT 0,
+                total_tickets INTEGER NOT NULL DEFAULT 0,
+                last_analyzed_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
+            [
+                "CREATE INDEX IF NOT EXISTS ix_clinic_profile_label ON clinic_profile(profile_label)",
+            ],
+        ),
+        (
+            "topic_knowledge",
+            """
+            CREATE TABLE topic_knowledge (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                topic TEXT NOT NULL,
+                pattern_summary TEXT NOT NULL,
+                resolution_summary TEXT NOT NULL,
+                example_conversation TEXT,
+                occurrence_count INTEGER NOT NULL DEFAULT 1,
+                resolution_success_rate NUMERIC(3,2),
+                source_version INTEGER,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
+            [
+                "CREATE INDEX IF NOT EXISTS ix_topic_knowledge_topic ON topic_knowledge(topic)",
+                "CREATE INDEX IF NOT EXISTS ix_topic_knowledge_occurrence ON topic_knowledge(occurrence_count)",
+            ],
+        ),
     ]
 
     for table_name, create_sql, index_sqls in tables_to_create:
@@ -301,6 +349,23 @@ def migrate_dedup_index(db: Session) -> None:
         logger.error(traceback.format_exc())
 
 
+def run_index_migrations(db: Session) -> None:
+    """Create new indexes on existing tables"""
+    if _is_sqlite(db):
+        return
+    indexes = [
+        ("ix_ticket_resolution", "CREATE INDEX IF NOT EXISTS ix_ticket_resolution ON ticket(resolution_status)"),
+        ("ix_staff_response_highlighted", "CREATE INDEX IF NOT EXISTS ix_staff_response_highlighted ON staff_response_log(is_highlighted) WHERE is_highlighted = TRUE"),
+    ]
+    for idx_name, idx_sql in indexes:
+        try:
+            db.execute(text(idx_sql))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"[Migration] Index {idx_name} failed: {e}")
+
+
 def run_all_migrations(db: Session) -> None:
     """Run all database migrations in order"""
     run_column_migrations(db)
@@ -309,3 +374,4 @@ def run_all_migrations(db: Session) -> None:
     fix_existing_tickets_needs_reply(db)
     run_table_migrations(db)
     migrate_dedup_index(db)
+    run_index_migrations(db)
