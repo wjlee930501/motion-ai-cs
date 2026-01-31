@@ -23,7 +23,7 @@ _scheduler: Optional[BackgroundScheduler] = None
 
 
 def setup_learning_scheduler():
-    """학습 스케줄러 설정 - 매일 02:00 실행"""
+    """학습 스케줄러 설정 - 3일마다 02:00 실행"""
     global _scheduler
 
     if _scheduler is not None:
@@ -34,7 +34,7 @@ def setup_learning_scheduler():
 
     _scheduler.add_job(
         run_learning_cycle,
-        CronTrigger(hour=2, minute=0),
+        CronTrigger(day='*/3', hour=2, minute=0),
         id='learning_cycle',
         name='CS Understanding Learning Cycle',
         replace_existing=True,
@@ -42,7 +42,7 @@ def setup_learning_scheduler():
     )
 
     _scheduler.start()
-    logger.info("[Learning] Scheduler started - runs daily at 02:00 KST")
+    logger.info("[Learning] Scheduler started - runs every 3 days at 02:00 KST")
 
 
 def shutdown_learning_scheduler():
