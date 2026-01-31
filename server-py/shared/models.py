@@ -143,6 +143,11 @@ class Ticket(Base):
     )  # 답변이 필요한 상태인지 (LLM 판단 기반)
     sla_breached = Column(Boolean, nullable=False, default=False)
     sla_alerted_at = Column(DateTime(timezone=True), nullable=True)
+    # 해결 추적
+    resolution_status = Column(
+        Text, nullable=True
+    )  # resolved, unresolved, escalated (null = 미결정)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -178,6 +183,7 @@ class Ticket(Base):
         ),
         Index("ix_ticket_updated", "updated_at"),
         Index("ix_ticket_first_inbound", "first_inbound_at"),
+        Index("ix_ticket_resolution", "resolution_status"),
     )
 
 
@@ -462,6 +468,10 @@ class StaffResponseLog(Base):
     response_position = Column(Integer, nullable=False, default=1)  # 대화 내 몇 번째 직원 응답
     message_length = Column(Integer, nullable=False, default=0)  # 응답 메시지 길이
 
+    # 우수 응대 하이라이트
+    is_highlighted = Column(Boolean, nullable=False, default=False)
+    highlight_reason = Column(Text, nullable=True)  # 예: "1회 해결 + 빠른 응답 + 긍정 종료"
+
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -471,6 +481,11 @@ class StaffResponseLog(Base):
         Index("ix_staff_response_clinic", "clinic_key"),
         Index("ix_staff_response_created", "created_at"),
         Index("ix_staff_response_ticket", "ticket_id"),
+        Index(
+            "ix_staff_response_highlighted",
+            "is_highlighted",
+            postgresql_where="is_highlighted = TRUE",
+        ),
     )
 
 
@@ -579,4 +594,78 @@ class StaffAnalysisExecution(Base):
             name="ck_staff_analysis_exec_status",
         ),
         Index("ix_staff_analysis_exec_at", "executed_at"),
+    )
+
+
+class ClinicProfile(Base):
+    """병원(고객) 성향 프로파일 — 응대 톤, 까다로움 수준, 이력 누적"""
+
+    __tablename__ = "clinic_profile"
+
+    clinic_key = Column(Text, primary_key=True)  # 채팅방 이름 = 병원 식별
+
+    # 성향 지표 (0.0 ~ 1.0 정규화)
+    sentiment_avg = Column(Numeric(3, 2), nullable=True)  # 평균 감정 (0=negative, 1=positive)
+    complaint_ratio = Column(Numeric(3, 2), nullable=True)  # complaint intent 비율
+    urgency_avg = Column(Numeric(3, 2), nullable=True)  # 평균 긴급도 (0=low, 1=critical)
+    escalation_tendency = Column(Numeric(3, 2), nullable=True)  # 재촉/에스컬레이션 빈도
+    recontact_rate = Column(Numeric(3, 2), nullable=True)  # 같은 토픽 재문의 비율
+
+    # 종합 레이블
+    profile_label = Column(Text, nullable=True)  # demanding, neutral, friendly
+
+    # 통계
+    total_interactions = Column(Integer, nullable=False, default=0)
+    total_tickets = Column(Integer, nullable=False, default=0)
+
+    # 메타
+    last_analyzed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_clinic_profile_label", "profile_label"),
+    )
+
+
+class TopicKnowledge(Base):
+    """토픽별 축적된 해결 지식 — 원인→해결책 패턴"""
+
+    __tablename__ = "topic_knowledge"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    topic = Column(Text, nullable=False)  # 주제 (발송/전송 문제, 예약 관련 등)
+
+    # 지식 내용
+    pattern_summary = Column(Text, nullable=False)  # 흔한 문제/원인 요약
+    resolution_summary = Column(Text, nullable=False)  # 일반적 해결 방법
+    example_conversation = Column(Text, nullable=True)  # 대표 대화 예시 (익명화)
+
+    # 통계
+    occurrence_count = Column(Integer, nullable=False, default=1)  # 해당 패턴 발생 횟수
+    resolution_success_rate = Column(Numeric(3, 2), nullable=True)  # 해결 성공률
+
+    # 출처
+    source_version = Column(Integer, nullable=True)  # 어느 학습 버전에서 추출
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_topic_knowledge_topic", "topic"),
+        Index("ix_topic_knowledge_occurrence", "occurrence_count"),
     )

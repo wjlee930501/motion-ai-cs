@@ -97,6 +97,15 @@ def run_learning_cycle(trigger_type: str = "manual"):
         )
 
         logger.info(f"[Learning] Completed in {duration}s - Understanding v{result['version']}")
+
+        # Run clinic profiling after learning cycle
+        try:
+            from worker.clinic_profiling import compute_clinic_profiles
+            profile_count = compute_clinic_profiles(db)
+            logger.info(f"[Learning] Clinic profiling completed: {profile_count} profiles")
+        except Exception as e:
+            logger.error(f"[Learning] Clinic profiling failed (non-blocking): {e}")
+
         return result
 
     except Exception as e:

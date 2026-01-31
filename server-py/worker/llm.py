@@ -12,7 +12,7 @@ from shared.config import get_settings
 from shared.utils import should_escalate_to_sonnet, match_skip_pattern
 from shared.constants import get_needs_reply, build_intent_prompt_section, build_needs_reply_guide
 from shared.database import get_db
-from shared.models import CSUnderstanding, ClassificationFeedback
+from shared.models import CSUnderstanding, ClassificationFeedback, ClinicProfile
 
 settings = get_settings()
 
@@ -212,6 +212,26 @@ def get_recent_conversation_context(chat_room: str, limit: int = 5) -> list[dict
         return []
 
 
+def _get_clinic_hint(chat_room: str) -> str:
+    """병원 프로파일이 있으면 분류 시 참고 힌트 반환"""
+    try:
+        db = next(get_db())
+        profile = db.query(ClinicProfile).filter(ClinicProfile.clinic_key == chat_room).first()
+        db.close()
+
+        if not profile or not profile.profile_label:
+            return ""
+
+        labels = {"demanding": "까다로운 편", "friendly": "우호적인 편", "neutral": "보통"}
+        label_kr = labels.get(profile.profile_label, "")
+        if not label_kr:
+            return ""
+
+        return f"고객 성향: {label_kr} (불만비율 {float(profile.complaint_ratio or 0):.0%})\n"
+    except Exception:
+        return ""
+
+
 def build_classification_prompt(base_prompt: str) -> str:
     """
     기본 프롬프트에 수정 규칙 + CSUnderstanding 컨텍스트를 추가.
@@ -378,9 +398,12 @@ def classify_event(
             context_lines.append(f"  [{sender_label}] {msg['text']}")
         context_str = "\n이전 대화 맥락 (최근 " + str(len(conversation_context)) + "개):\n" + "\n".join(context_lines) + "\n"
 
+    # 병원 성향 컨텍스트 (프로파일이 있으면 참고 정보 제공)
+    clinic_hint = _get_clinic_hint(chat_room)
+
     user_prompt = f"""채팅방: {chat_room}
 발신자 유형: {sender_type}
-{context_str}
+{clinic_hint}{context_str}
 현재 메시지: {text}
 
 위 메시지를 분석하여 JSON으로 반환하세요. 이전 대화 맥락이 있다면 참고하여 의도와 긴급도를 판단하세요."""

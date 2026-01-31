@@ -30,6 +30,8 @@ from shared.models import (
     StaffResponseLog,
     StaffResponseAnalysis,
     StaffAnalysisExecution,
+    ClinicProfile,
+    TopicKnowledge,
 )
 from shared.schemas import (
     LoginRequest,
@@ -763,6 +765,160 @@ async def get_clinics_health(
     clinics.sort(key=lambda x: (x.sla_breached, x.urgent_count), reverse=True)
 
     return ClinicHealthResponse(ok=True, clinics=clinics)
+
+
+# ============================================
+# Resolution & Clinic Profile Endpoints
+# ============================================
+
+
+@app.get("/v1/metrics/resolution")
+async def get_resolution_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get conversation resolution statistics"""
+    total = db.query(func.count(Ticket.ticket_id)).scalar() or 0
+    resolved = (
+        db.query(func.count(Ticket.ticket_id))
+        .filter(Ticket.resolution_status == "resolved")
+        .scalar() or 0
+    )
+    unresolved = (
+        db.query(func.count(Ticket.ticket_id))
+        .filter(Ticket.resolution_status == "unresolved")
+        .scalar() or 0
+    )
+    pending = total - resolved - unresolved
+
+    # Resolution rate by topic
+    by_topic = (
+        db.query(
+            Ticket.topic_primary,
+            func.count(Ticket.ticket_id).label("total"),
+            func.count(Ticket.ticket_id)
+            .filter(Ticket.resolution_status == "resolved")
+            .label("resolved"),
+        )
+        .filter(Ticket.topic_primary.isnot(None))
+        .group_by(Ticket.topic_primary)
+        .all()
+    )
+
+    topic_stats = []
+    for row in by_topic:
+        rate = round(row.resolved / row.total, 2) if row.total > 0 else 0
+        topic_stats.append({
+            "topic": row.topic_primary,
+            "total": row.total,
+            "resolved": row.resolved,
+            "resolution_rate": rate,
+        })
+    topic_stats.sort(key=lambda x: x["resolution_rate"])
+
+    return {
+        "ok": True,
+        "total": total,
+        "resolved": resolved,
+        "unresolved": unresolved,
+        "pending": pending,
+        "resolution_rate": round(resolved / total, 2) if total > 0 else 0,
+        "by_topic": topic_stats,
+    }
+
+
+@app.get("/v1/clinics/profiles")
+async def get_clinic_profiles(
+    label: Optional[str] = Query(None, description="Filter by profile_label"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get all clinic profiles with behavior patterns"""
+    query = db.query(ClinicProfile)
+    if label:
+        query = query.filter(ClinicProfile.profile_label == label)
+
+    profiles = query.order_by(ClinicProfile.updated_at.desc()).all()
+
+    return {
+        "ok": True,
+        "profiles": [
+            {
+                "clinic_key": p.clinic_key,
+                "sentiment_avg": float(p.sentiment_avg) if p.sentiment_avg else None,
+                "complaint_ratio": float(p.complaint_ratio) if p.complaint_ratio else None,
+                "urgency_avg": float(p.urgency_avg) if p.urgency_avg else None,
+                "escalation_tendency": float(p.escalation_tendency) if p.escalation_tendency else None,
+                "recontact_rate": float(p.recontact_rate) if p.recontact_rate else None,
+                "profile_label": p.profile_label,
+                "total_interactions": p.total_interactions,
+                "total_tickets": p.total_tickets,
+                "last_analyzed_at": p.last_analyzed_at.isoformat() if p.last_analyzed_at else None,
+            }
+            for p in profiles
+        ],
+        "total": len(profiles),
+    }
+
+
+@app.get("/v1/clinics/{clinic_key}/profile")
+async def get_clinic_profile(
+    clinic_key: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get a specific clinic's profile"""
+    profile = db.query(ClinicProfile).filter(ClinicProfile.clinic_key == clinic_key).first()
+
+    if not profile:
+        return {"ok": True, "profile": None, "message": "No profile data yet"}
+
+    return {
+        "ok": True,
+        "profile": {
+            "clinic_key": profile.clinic_key,
+            "sentiment_avg": float(profile.sentiment_avg) if profile.sentiment_avg else None,
+            "complaint_ratio": float(profile.complaint_ratio) if profile.complaint_ratio else None,
+            "urgency_avg": float(profile.urgency_avg) if profile.urgency_avg else None,
+            "escalation_tendency": float(profile.escalation_tendency) if profile.escalation_tendency else None,
+            "recontact_rate": float(profile.recontact_rate) if profile.recontact_rate else None,
+            "profile_label": profile.profile_label,
+            "total_interactions": profile.total_interactions,
+            "total_tickets": profile.total_tickets,
+            "last_analyzed_at": profile.last_analyzed_at.isoformat() if profile.last_analyzed_at else None,
+        },
+    }
+
+
+@app.get("/v1/topics/knowledge")
+async def get_topic_knowledge(
+    topic: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get accumulated topic knowledge — common issues and resolution patterns"""
+    query = db.query(TopicKnowledge)
+    if topic:
+        query = query.filter(TopicKnowledge.topic == topic)
+
+    entries = query.order_by(TopicKnowledge.occurrence_count.desc()).all()
+
+    return {
+        "ok": True,
+        "topics": [
+            {
+                "topic": e.topic,
+                "pattern_summary": e.pattern_summary,
+                "resolution_summary": e.resolution_summary,
+                "example_conversation": e.example_conversation,
+                "occurrence_count": e.occurrence_count,
+                "resolution_success_rate": float(e.resolution_success_rate) if e.resolution_success_rate else None,
+                "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+            }
+            for e in entries
+        ],
+        "total": len(entries),
+    }
 
 
 # ============================================
@@ -1806,6 +1962,47 @@ async def get_learning_insights(
 # ============================================
 # Staff Response Analytics Endpoints
 # ============================================
+
+
+@app.get("/v1/staff/highlights")
+async def get_highlighted_responses(
+    limit: int = Query(20, ge=1, le=100),
+    staff_member: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get highlighted (excellent) staff responses for team learning"""
+    query = db.query(StaffResponseLog).filter(StaffResponseLog.is_highlighted == True)
+
+    if staff_member:
+        query = query.filter(StaffResponseLog.staff_member == staff_member)
+
+    highlights = (
+        query.order_by(StaffResponseLog.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "ok": True,
+        "highlights": [
+            {
+                "id": h.id,
+                "staff_member": h.staff_member,
+                "clinic_key": h.clinic_key,
+                "customer_text_snippet": h.customer_text_snippet,
+                "response_text_snippet": h.response_text_snippet,
+                "customer_intent": h.customer_intent,
+                "customer_topic": h.customer_topic,
+                "response_delay_sec": h.response_delay_sec,
+                "response_position": h.response_position,
+                "highlight_reason": h.highlight_reason,
+                "created_at": h.created_at.isoformat() if h.created_at else None,
+            }
+            for h in highlights
+        ],
+        "total": len(highlights),
+    }
 
 
 @app.get("/v1/staff/response-stats", response_model=StaffResponseStatsResponse)

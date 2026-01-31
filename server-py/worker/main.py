@@ -106,6 +106,13 @@ def save_llm_annotation(db: Session, event_id, model: str, result: dict):
     return annotation
 
 
+# Intents that signal positive conversation closure (customer acknowledges resolution)
+RESOLUTION_INTENTS = {"acknowledgment", "confirmation_received"}
+# Intents that signal active inquiry (customer needs help)
+INQUIRY_INTENTS = {"inquiry_status", "request_action", "request_change", "complaint",
+                   "question_how", "question_when", "follow_up"}
+
+
 def reset_sla_for_reinquiry(ticket: Ticket, received_at: datetime):
     """Reset SLA timers when a new inquiry arrives after a response."""
     ticket.sla_breached = False
@@ -178,6 +185,32 @@ def create_staff_initiated_ticket(event: MessageEvent, clinic_key: str) -> Ticke
     )
 
 
+def detect_resolution(ticket: Ticket, classification: dict):
+    """
+    Detect conversation resolution based on customer intent after staff response.
+
+    Rules:
+    - Customer sends acknowledgment/confirmation AFTER staff responded → resolved
+    - Customer sends new inquiry on a resolved ticket → unresolved (re-inquiry)
+    """
+    intent = classification.get("intent", "")
+
+    # Case 1: Customer acknowledges after staff response → resolved
+    if intent in RESOLUTION_INTENTS and ticket.last_outbound_at:
+        if ticket.resolution_status != "resolved":
+            ticket.resolution_status = "resolved"
+            ticket.resolved_at = datetime.utcnow()
+            logger.info(f"Ticket {ticket.ticket_id} auto-resolved (customer {intent})")
+        return
+
+    # Case 2: New inquiry on a previously resolved ticket → unresolved (re-inquiry)
+    if intent in INQUIRY_INTENTS and ticket.resolution_status == "resolved":
+        ticket.resolution_status = "unresolved"
+        ticket.resolved_at = None
+        logger.info(f"Ticket {ticket.ticket_id} marked unresolved (re-inquiry: {intent})")
+        return
+
+
 def handle_customer_event(db: Session, event: MessageEvent, classification: dict):
     """
     Handle incoming customer message.
@@ -187,6 +220,7 @@ def handle_customer_event(db: Session, event: MessageEvent, classification: dict
     2. Link event to ticket
     3. Update ticket timestamps and status
     4. Apply LLM urgency to priority
+    5. Detect resolution status
     """
     clinic_key = event.chat_room
 
@@ -196,6 +230,7 @@ def handle_customer_event(db: Session, event: MessageEvent, classification: dict
     if ticket:
         link_event_to_ticket(db, ticket.ticket_id, event.event_id)
         apply_customer_classification(ticket, event, classification, message_needs_reply)
+        detect_resolution(ticket, classification)
     else:
         ticket = create_customer_ticket(event, classification, message_needs_reply)
         db.add(ticket)
@@ -418,6 +453,35 @@ def check_sla_breaches(db: Session):
     return alerted_count
 
 
+def auto_resolve_inactive_tickets(db: Session):
+    """
+    Auto-resolve tickets inactive for 24h+ where:
+    - Last message was staff response (needs_reply=False), OR
+    - Customer's last intent was acknowledgment/confirmation
+    - Resolution not yet determined
+    """
+    try:
+        cutoff = get_kst_now() - timedelta(hours=24)
+        candidates = db.query(Ticket).filter(
+            Ticket.resolution_status.is_(None),
+            Ticket.updated_at <= cutoff,
+            Ticket.needs_reply == False,
+        ).limit(50).all()
+
+        resolved_count = 0
+        for ticket in candidates:
+            ticket.resolution_status = "resolved"
+            ticket.resolved_at = datetime.utcnow()
+            resolved_count += 1
+
+        if resolved_count > 0:
+            db.commit()
+            logger.info(f"Auto-resolved {resolved_count} inactive tickets")
+    except Exception as e:
+        logger.error(f"Auto-resolve check failed: {e}")
+        db.rollback()
+
+
 def process_event(db: Session, event: MessageEvent):
     """Process a single event"""
     logger.info(f"Processing event {event.event_id}: {event.chat_room} - {event.sender_name}")
@@ -501,6 +565,9 @@ def run_worker_cycle(db: Session):
     breach_count = check_sla_breaches(db)
     if breach_count > 0:
         logger.info(f"Processed {breach_count} SLA breaches")
+
+    # Auto-resolve inactive tickets (24h+ no activity, last action was staff response)
+    auto_resolve_inactive_tickets(db)
 
 
 def worker_loop():
@@ -675,6 +742,38 @@ async def trigger_staff_analysis(x_worker_secret: Optional[str] = Header(None)):
         "ok": True,
         "status": "started",
         "message": "Staff analysis cycle started in background"
+    }
+
+
+@app.post("/clinic-profiling/run")
+async def trigger_clinic_profiling(x_worker_secret: Optional[str] = Header(None)):
+    """Trigger manual clinic profiling — called by Dashboard API."""
+    expected_secret = os.environ.get("WORKER_SECRET", "")
+    if not expected_secret or x_worker_secret != expected_secret:
+        from fastapi import HTTPException, status as http_status
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail={"ok": False, "error": {"code": "UNAUTHORIZED", "message": "Invalid or missing worker secret"}}
+        )
+
+    import threading
+    from .clinic_profiling import run_clinic_profiling
+
+    def run_in_background():
+        try:
+            logger.info("[ClinicProfile] Manual profiling starting...")
+            count = run_clinic_profiling()
+            logger.info(f"[ClinicProfile] Completed: {count} profiles")
+        except Exception as e:
+            logger.error(f"[ClinicProfile] Manual run failed: {e}")
+
+    thread = threading.Thread(target=run_in_background, daemon=True)
+    thread.start()
+
+    return {
+        "ok": True,
+        "status": "started",
+        "message": "Clinic profiling started in background"
     }
 
 
