@@ -9,7 +9,7 @@ Endpoints:
 import os
 import logging
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, HTTPException, Header, status
@@ -49,8 +49,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_credentials=False,
+    allow_methods=["POST", "GET"],
     allow_headers=["*"],
 )
 
@@ -85,6 +85,21 @@ async def create_event(
     2. Deduplication check (10-second bucket)
     3. Store in database
     """
+    # Validate timestamp (reject events with unreasonable timestamps)
+    now = get_kst_now()
+    # Ensure received_at is timezone-aware for safe comparison
+    received_at = event.received_at
+    if received_at.tzinfo is None:
+        import pytz
+        received_at = pytz.timezone("Asia/Seoul").localize(received_at)
+    max_future = now + timedelta(minutes=5)
+    max_past = now - timedelta(days=7)
+    if received_at > max_future or received_at < max_past:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"ok": False, "error": {"code": "INVALID_TIMESTAMP", "message": "received_at is out of acceptable range (7 days past to 5 minutes future)"}}
+        )
+
     # Classify sender
     sender_type, staff_member = classify_sender(event.sender_name)
 
@@ -123,7 +138,7 @@ async def create_event(
         # Duplicate detected (unique constraint on text_hash + bucket_ts)
         db.rollback()
 
-        # Find existing event
+        # Find existing event (may fail if concurrent insert not yet committed)
         existing = db.query(MessageEvent).filter(
             MessageEvent.text_hash == text_hash,
             MessageEvent.bucket_ts == bucket_ts
@@ -132,11 +147,8 @@ async def create_event(
         if existing:
             return EventResponse(ok=True, event_id=existing.event_id, deduped=True)
 
-        # Shouldn't happen, but handle gracefully
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"ok": False, "error": {"code": "INTERNAL_ERROR", "message": "Dedup conflict"}}
-        )
+        # Concurrent insert not yet visible — safe to return deduped response
+        return EventResponse(ok=True, event_id=event_id, deduped=True)
 
     except Exception as e:
         db.rollback()

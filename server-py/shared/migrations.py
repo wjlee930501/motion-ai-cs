@@ -12,6 +12,14 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
+def _is_sqlite(db: Session) -> bool:
+    """Check if running on SQLite (skip PostgreSQL-specific migrations)"""
+    try:
+        return db.bind and db.bind.url.drivername.startswith("sqlite")
+    except Exception:
+        return False
+
+
 # Common column migrations
 COLUMN_MIGRATIONS = [
     # (table, column, sql)
@@ -29,6 +37,8 @@ COLUMN_MIGRATIONS = [
 
 def run_column_migrations(db: Session) -> None:
     """Run database migrations for new columns"""
+    if _is_sqlite(db):
+        return
     for table, column, sql in COLUMN_MIGRATIONS:
         try:
             # Check if column exists
@@ -49,6 +59,8 @@ def run_column_migrations(db: Session) -> None:
 
 def drop_old_status_constraint(db: Session) -> None:
     """Drop old status check constraint for status migration"""
+    if _is_sqlite(db):
+        return
     try:
         db.execute(text("ALTER TABLE ticket DROP CONSTRAINT IF EXISTS ck_ticket_status"))
         db.commit()
@@ -61,6 +73,8 @@ def drop_old_status_constraint(db: Session) -> None:
 
 def migrate_ticket_status(db: Session) -> None:
     """Migrate old ticket status values to new lifecycle-based values"""
+    if _is_sqlite(db):
+        return
     logger.info("Starting status migration...")
     try:
         # Map old status to new status: new/in_progress/waiting -> onboarding, done -> stable
@@ -109,6 +123,8 @@ def fix_existing_tickets_needs_reply(db: Session) -> None:
 
     Staff messages (모션랩스_*) should set needs_reply=False.
     """
+    if _is_sqlite(db):
+        return
     logger.info("Starting fix_existing_tickets migration...")
     try:
         # Update last_message_sender for all tickets
@@ -150,6 +166,8 @@ def fix_existing_tickets_needs_reply(db: Session) -> None:
 
 def run_table_migrations(db: Session) -> None:
     """Create new tables if they don't exist"""
+    if _is_sqlite(db):
+        return
     tables_to_create = [
         (
             "staff_response_log",
@@ -247,6 +265,8 @@ def migrate_dedup_index(db: Session) -> None:
     Old: ux_message_event_dedup (text_hash, bucket_ts) — caused loss of repeated short messages
     New: ux_message_event_dedup_v2 (text_hash, bucket_ts) — hash now includes received_at seconds
     """
+    if _is_sqlite(db):
+        return
     try:
         # Check if old index exists
         check_sql = text("""

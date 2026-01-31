@@ -1,6 +1,6 @@
 import uuid
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column,
     String,
@@ -14,7 +14,7 @@ from sqlalchemy import (
     CheckConstraint,
     JSON,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSON
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import TypeDecorator, CHAR
 from .database import Base, DATABASE_URL
@@ -52,8 +52,7 @@ class GUID(TypeDecorator):
 
 # Use JSON for SQLite, JSON for PostgreSQL
 def get_json_type():
-    if DATABASE_URL.startswith("sqlite"):
-        return JSON
+    """Returns JSON type compatible with current database."""
     return JSON
 
 
@@ -66,12 +65,12 @@ class User(Base):
     name = Column(Text, nullable=False)
     role = Column(Text, nullable=False, default="member")  # admin, member
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     updated_at = Column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
@@ -97,7 +96,7 @@ class MessageEvent(Base):
     metadata_json = Column(JSON, nullable=True)
     ingest_status = Column(Text, nullable=False, default="received")
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     # Relationships
@@ -145,12 +144,12 @@ class Ticket(Base):
     sla_breached = Column(Boolean, nullable=False, default=False)
     sla_alerted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     updated_at = Column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
@@ -195,7 +194,7 @@ class TicketEventLink(Base):
     )
     link_type = Column(Text, nullable=False, default="append")
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     # Relationships
@@ -219,7 +218,7 @@ class LLMAnnotation(Base):
     confidence = Column(Numeric, nullable=True)
     raw_response = Column(JSON, nullable=True)
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     __table_args__ = (
@@ -237,7 +236,7 @@ class DeviceHeartbeat(Base):
     device_id = Column(Text, primary_key=True)
     last_seen_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
 
@@ -249,7 +248,7 @@ class SLAAlertLog(Base):
         GUID(), ForeignKey("ticket.ticket_id", ondelete="CASCADE"), nullable=False
     )
     alert_type = Column(Text, nullable=False, default="slack")
-    sent_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    sent_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     response_status = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
 
@@ -267,7 +266,7 @@ class CSUnderstanding(Base):
     id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     version = Column(Integer, nullable=False)
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     # 분석 메타데이터
@@ -336,12 +335,12 @@ class MessageTemplate(Base):
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     updated_at = Column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
@@ -370,7 +369,7 @@ class Notification(Base):
     link = Column(Text, nullable=True)  # 클릭 시 이동할 경로 (예: /tickets?id=xxx)
     is_read = Column(Boolean, nullable=False, default=False)
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     __table_args__ = (
@@ -417,7 +416,7 @@ class ClassificationFeedback(Base):
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     corrected_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     # 학습 반영 여부
@@ -464,7 +463,7 @@ class StaffResponseLog(Base):
     message_length = Column(Integer, nullable=False, default=0)  # 응답 메시지 길이
 
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     __table_args__ = (
@@ -508,7 +507,7 @@ class PatternApplicationLog(Base):
     auto_approved = Column(Boolean, nullable=False, default=False)
 
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     __table_args__ = (
@@ -534,7 +533,7 @@ class StaffResponseAnalysis(Base):
     id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     version = Column(Integer, nullable=False, unique=True)
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     # 분석 메타데이터

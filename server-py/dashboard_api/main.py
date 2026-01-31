@@ -172,7 +172,7 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[settings.dashboard_url, "http://localhost:3000", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -418,7 +418,7 @@ async def list_tickets(
     clinic_key: Optional[str] = None,
     sla_breached: Optional[bool] = None,
     page: Optional[int] = Query(None, ge=1),
-    limit: Optional[int] = Query(None, ge=1),
+    limit: Optional[int] = Query(200, ge=1, le=1000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -872,7 +872,7 @@ async def get_understanding_by_version(
 
 @app.post("/v1/learning/run")
 async def trigger_learning_cycle(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db), current_user: User = Depends(get_admin_user)
 ):
     """Trigger manual learning cycle by calling Worker service"""
 
@@ -1907,7 +1907,7 @@ async def get_staff_analysis_history(
 @app.post("/v1/staff-analysis/run")
 async def trigger_staff_analysis(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_admin_user),
 ):
     """Trigger manual staff analysis by calling Worker service"""
     worker_url = os.environ.get("WORKER_URL", "http://localhost:8080")

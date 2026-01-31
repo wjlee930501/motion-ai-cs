@@ -301,7 +301,7 @@ def classify_event(
                 "urgency": "medium",
                 "sentiment": "neutral",
                 "intent": "other",
-                "needs_reply": False,  # Safe default - don't trigger false alerts
+                "needs_reply": True,  # Safe default - don't miss real customer inquiries
                 "summary": text[:20],
                 "confidence": 0.5
             }
@@ -326,7 +326,7 @@ def classify_event(
             "urgency": "medium",
             "sentiment": "neutral",
             "intent": "other",
-            "needs_reply": False,  # Safe default - don't trigger false alerts
+            "needs_reply": True,  # Safe default - don't miss real customer inquiries
             "summary": text[:20],
             "confidence": 0.3,
             "error": str(e)

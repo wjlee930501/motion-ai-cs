@@ -53,9 +53,16 @@ def get_unprocessed_events(db: Session, limit: int = 50) -> list[MessageEvent]:
 
     Uses SELECT FOR UPDATE SKIP LOCKED to prevent duplicate processing
     when multiple worker instances run concurrently.
+    Also recovers events stuck in 'processing' for more than 5 minutes.
     """
+    from sqlalchemy import or_, and_
+    stale_threshold = get_kst_now() - timedelta(minutes=5)
     return db.query(MessageEvent).filter(
-        MessageEvent.ingest_status == "received"  # 'processing' 상태는 다른 워커가 처리 중
+        or_(
+            MessageEvent.ingest_status == "received",
+            # Recover stuck events: processing for >5 min means worker crashed
+            and_(MessageEvent.ingest_status == "processing", MessageEvent.created_at < stale_threshold),
+        )
     ).order_by(
         MessageEvent.received_at.asc()
     ).limit(limit).with_for_update(skip_locked=True).all()
@@ -309,13 +316,13 @@ def record_staff_response(db: Session, event: MessageEvent, ticket: Ticket):
         # 3. Calculate response_position: how many staff responses in this ticket before this one
         from sqlalchemy import func
 
-        prior_staff_count = (
-            db.query(func.count(StaffResponseLog.id))
+        max_position = (
+            db.query(func.max(StaffResponseLog.response_position))
             .filter(StaffResponseLog.ticket_id == ticket.ticket_id)
             .scalar()
             or 0
         )
-        response_position = prior_staff_count + 1
+        response_position = max_position + 1
 
         # 4. Create the log record
         staff_name = event.staff_member or event.sender_name
@@ -361,7 +368,7 @@ def check_sla_breaches(db: Session):
         Ticket.first_inbound_at <= threshold,
         Ticket.sla_breached == False,
         Ticket.needs_reply == True  # Only check SLA for messages that need a reply
-    ).all()
+    ).with_for_update(skip_locked=True).all()
 
     alerted_count = 0
     for ticket in breached_tickets:
@@ -405,6 +412,9 @@ def check_sla_breaches(db: Session):
         else:
             logger.warning(f"SLA breach alert FAILED for ticket {ticket.ticket_id}: {error} — will retry next cycle")
 
+    # Commit all alert log entries (including failures) so we have audit trail
+    if breached_tickets:
+        db.commit()
     return alerted_count
 
 
@@ -490,7 +500,6 @@ def run_worker_cycle(db: Session):
     # Check SLA breaches
     breach_count = check_sla_breaches(db)
     if breach_count > 0:
-        db.commit()
         logger.info(f"Processed {breach_count} SLA breaches")
 
 
