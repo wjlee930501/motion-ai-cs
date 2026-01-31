@@ -33,6 +33,7 @@ from shared.migrations import run_column_migrations, drop_old_status_constraint,
 from .llm import classify_event, summarize_ticket, get_priority_from_urgency, should_upgrade_priority
 from .slack import send_sla_alert, send_urgent_ticket_alert
 from .learning import setup_learning_scheduler, shutdown_learning_scheduler
+from .staff_analysis import setup_staff_analysis_scheduler, shutdown_staff_analysis_scheduler
 
 # Configure logging
 logging.basicConfig(
@@ -551,6 +552,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to start learning scheduler: {e}")
 
+    # Start staff analysis scheduler (Sunday 03:00 KST)
+    try:
+        setup_staff_analysis_scheduler()
+        logger.info("Staff analysis scheduler started")
+    except Exception as e:
+        logger.error(f"Failed to start staff analysis scheduler: {e}")
+
     yield
 
     # Shutdown
@@ -559,6 +567,10 @@ async def lifespan(app: FastAPI):
         shutdown_learning_scheduler()
     except Exception as e:
         logger.error(f"Failed to shutdown learning scheduler: {e}")
+    try:
+        shutdown_staff_analysis_scheduler()
+    except Exception as e:
+        logger.error(f"Failed to shutdown staff analysis scheduler: {e}")
 
 
 # FastAPI app for Cloud Run health checks
@@ -618,6 +630,38 @@ async def trigger_learning(x_worker_secret: Optional[str] = Header(None)):
         "ok": True,
         "status": "started",
         "message": "Learning cycle started in background"
+    }
+
+
+@app.post("/staff-analysis/run")
+async def trigger_staff_analysis(x_worker_secret: Optional[str] = Header(None)):
+    """Trigger manual staff analysis cycle - called by Dashboard API."""
+    expected_secret = os.environ.get("WORKER_SECRET", "")
+    if not expected_secret or x_worker_secret != expected_secret:
+        from fastapi import HTTPException, status as http_status
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail={"ok": False, "error": {"code": "UNAUTHORIZED", "message": "Invalid or missing worker secret"}}
+        )
+
+    import threading
+    from .staff_analysis import run_staff_analysis_cycle_manual
+
+    def run_in_background():
+        try:
+            logger.info("[StaffAnalysis] Manual analysis cycle starting...")
+            run_staff_analysis_cycle_manual()
+            logger.info("[StaffAnalysis] Manual analysis cycle completed")
+        except Exception as e:
+            logger.error(f"[StaffAnalysis] Manual run failed: {e}")
+
+    thread = threading.Thread(target=run_in_background, daemon=True)
+    thread.start()
+
+    return {
+        "ok": True,
+        "status": "started",
+        "message": "Staff analysis cycle started in background"
     }
 
 

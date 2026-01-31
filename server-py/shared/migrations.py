@@ -178,6 +178,46 @@ def run_table_migrations(db: Session) -> None:
                 "CREATE INDEX IF NOT EXISTS ix_staff_response_ticket ON staff_response_log(ticket_id)",
             ],
         ),
+        (
+            "staff_response_analysis",
+            """
+            CREATE TABLE staff_response_analysis (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                version INTEGER NOT NULL UNIQUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                responses_analyzed_count INTEGER,
+                date_from TIMESTAMPTZ,
+                date_to TIMESTAMPTZ,
+                staff_members_analyzed INTEGER,
+                analysis_text TEXT NOT NULL,
+                insights JSONB,
+                model_used TEXT,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER
+            )
+            """,
+            [
+                "CREATE INDEX IF NOT EXISTS ix_staff_analysis_version ON staff_response_analysis(version)",
+                "CREATE INDEX IF NOT EXISTS ix_staff_analysis_created ON staff_response_analysis(created_at)",
+            ],
+        ),
+        (
+            "staff_analysis_execution",
+            """
+            CREATE TABLE staff_analysis_execution (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                status TEXT NOT NULL CHECK (status IN ('success', 'failed', 'partial')),
+                trigger_type TEXT,
+                duration_seconds INTEGER,
+                analysis_version INTEGER,
+                error_message TEXT
+            )
+            """,
+            [
+                "CREATE INDEX IF NOT EXISTS ix_staff_analysis_exec_at ON staff_analysis_execution(executed_at)",
+            ],
+        ),
     ]
 
     for table_name, create_sql, index_sqls in tables_to_create:

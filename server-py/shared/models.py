@@ -524,3 +524,60 @@ class PatternApplicationLog(Base):
         Index("ix_pattern_version", "understanding_version"),
         Index("ix_pattern_created", "created_at"),
     )
+
+
+class StaffResponseAnalysis(Base):
+    """직원 응답 품질 LLM 분석 결과"""
+
+    __tablename__ = "staff_response_analysis"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    version = Column(Integer, nullable=False, unique=True)
+    created_at = Column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    # 분석 메타데이터
+    responses_analyzed_count = Column(Integer, nullable=True)
+    date_from = Column(DateTime(timezone=True), nullable=True)
+    date_to = Column(DateTime(timezone=True), nullable=True)
+    staff_members_analyzed = Column(Integer, nullable=True)
+
+    # LLM 분석 내용
+    analysis_text = Column(Text, nullable=False)  # 서술형 분석
+    insights = Column(JSON, nullable=True)  # 구조화된 인사이트
+
+    # LLM 메타
+    model_used = Column(Text, nullable=True)
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_staff_analysis_version", "version"),
+        Index("ix_staff_analysis_created", "created_at"),
+    )
+
+
+class StaffAnalysisExecution(Base):
+    """직원 응답 분석 실행 기록"""
+
+    __tablename__ = "staff_analysis_execution"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    executed_at = Column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    status = Column(Text, nullable=False)  # success, failed, partial
+    trigger_type = Column(Text, nullable=True)  # scheduled, manual
+    duration_seconds = Column(Integer, nullable=True)
+    analysis_version = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('success', 'failed', 'partial')",
+            name="ck_staff_analysis_exec_status",
+        ),
+        Index("ix_staff_analysis_exec_at", "executed_at"),
+    )

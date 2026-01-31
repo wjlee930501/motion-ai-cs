@@ -28,6 +28,8 @@ from shared.models import (
     ClassificationFeedback,
     PatternApplicationLog,
     StaffResponseLog,
+    StaffResponseAnalysis,
+    StaffAnalysisExecution,
 )
 from shared.schemas import (
     LoginRequest,
@@ -65,6 +67,13 @@ from shared.schemas import (
     StaffResponseLogResponse,
     StaffResponseStatsItem,
     StaffResponseStatsResponse,
+    # Staff Response Analysis Schemas
+    StaffAnalysisDetail,
+    StaffAnalysisResponse,
+    StaffAnalysisHistoryResponse,
+    StaffAnalysisExecutionItem,
+    StaffInsightItem,
+    StaffInsightsResponse,
     # Learning System v2 Schemas
     FeedbackCreate,
     FeedbackItem,
@@ -1787,6 +1796,163 @@ async def get_staff_response_log(
         responses=[StaffResponseItem.model_validate(r) for r in responses],
         total=total,
     )
+
+
+# ============================================
+# Staff Response Analysis Endpoints
+# ============================================
+
+
+@app.get("/v1/staff-analysis/latest", response_model=StaffAnalysisResponse)
+async def get_latest_staff_analysis(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get latest staff response analysis"""
+    analysis = (
+        db.query(StaffResponseAnalysis)
+        .order_by(StaffResponseAnalysis.version.desc())
+        .first()
+    )
+
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "ok": False,
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "No staff analysis available yet",
+                },
+            },
+        )
+
+    return StaffAnalysisResponse(
+        ok=True,
+        analysis=StaffAnalysisDetail.model_validate(analysis),
+    )
+
+
+@app.get("/v1/staff-analysis/insights", response_model=StaffInsightsResponse)
+async def get_staff_analysis_insights(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get structured staff insights from latest analysis"""
+    analysis = (
+        db.query(StaffResponseAnalysis)
+        .order_by(StaffResponseAnalysis.version.desc())
+        .first()
+    )
+
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "ok": False,
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "No staff analysis available yet",
+                },
+            },
+        )
+
+    insights = analysis.insights or {}
+
+    staff_insights = []
+    for si in insights.get("staff_insights", []):
+        staff_insights.append(
+            StaffInsightItem(
+                staff_member=si.get("staff_member", "unknown"),
+                scores=si.get("scores", {}),
+                strengths=si.get("strengths", []),
+                weaknesses=si.get("weaknesses", []),
+                best_response=si.get("best_response"),
+            )
+        )
+
+    return StaffInsightsResponse(
+        ok=True,
+        version=analysis.version,
+        created_at=analysis.created_at,
+        staff_insights=staff_insights,
+        best_practices=insights.get("best_practices", []),
+        improvement_areas=insights.get("improvement_areas", []),
+        response_templates=insights.get("response_templates", []),
+    )
+
+
+@app.get("/v1/staff-analysis/history", response_model=StaffAnalysisHistoryResponse)
+async def get_staff_analysis_history(
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get staff analysis execution history"""
+    executions = (
+        db.query(StaffAnalysisExecution)
+        .order_by(StaffAnalysisExecution.executed_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return StaffAnalysisHistoryResponse(
+        ok=True,
+        executions=[
+            StaffAnalysisExecutionItem.model_validate(e) for e in executions
+        ],
+    )
+
+
+@app.post("/v1/staff-analysis/run")
+async def trigger_staff_analysis(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Trigger manual staff analysis by calling Worker service"""
+    worker_url = os.environ.get("WORKER_URL", "http://localhost:8080")
+
+    try:
+        worker_secret = os.environ.get("WORKER_SECRET", "")
+        headers = {"X-Worker-Secret": worker_secret} if worker_secret else {}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{worker_url}/staff-analysis/run", headers=headers
+            )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "ok": False,
+                    "status": "error",
+                    "message": f"Worker returned status {response.status_code}",
+                }
+    except httpx.RequestError as e:
+        # Fallback: try to run locally if worker is not accessible
+        logger.warning(f"Worker not accessible ({e}), trying local staff analysis...")
+        try:
+            from worker.staff_analysis import run_staff_analysis_cycle_manual
+
+            def run_in_background():
+                try:
+                    run_staff_analysis_cycle_manual()
+                except Exception as ex:
+                    logger.error(f"Local staff analysis run failed: {ex}")
+
+            thread = threading.Thread(target=run_in_background, daemon=True)
+            thread.start()
+
+            return {
+                "ok": True,
+                "status": "started",
+                "message": "Staff analysis started locally (worker not accessible)",
+            }
+        except Exception as local_err:
+            return {
+                "ok": False,
+                "status": "error",
+                "message": f"Failed to trigger staff analysis: {str(local_err)}",
+            }
 
 
 if __name__ == "__main__":

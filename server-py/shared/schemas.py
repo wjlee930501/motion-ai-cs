@@ -475,3 +475,72 @@ class StaffResponseStatsItem(BaseModel):
 class StaffResponseStatsResponse(BaseModel):
     ok: bool = True
     stats: list[StaffResponseStatsItem]
+
+
+# ============================================
+# Dashboard API - Staff Response Analysis
+# ============================================
+
+
+class StaffInsightItem(BaseModel):
+    staff_member: str
+    scores: dict  # {professionalism, friendliness, timeliness, completeness}
+    strengths: list[str] = []
+    weaknesses: list[str] = []
+    best_response: Optional[str] = None
+
+
+class StaffInsightsResponse(BaseModel):
+    ok: bool = True
+    version: int
+    created_at: datetime
+    staff_insights: list[StaffInsightItem] = []
+    best_practices: list[dict] = []
+    improvement_areas: list[dict] = []
+    response_templates: list[dict] = []
+
+
+class StaffAnalysisDetail(BaseModel):
+    id: UUID
+    version: int
+    created_at: datetime
+    responses_analyzed_count: Optional[int] = None
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
+    staff_members_analyzed: Optional[int] = None
+    analysis_text: str
+    insights: Optional[dict] = None
+    model_used: Optional[str] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class StaffAnalysisResponse(BaseModel):
+    ok: bool = True
+    analysis: StaffAnalysisDetail
+
+
+class StaffAnalysisListResponse(BaseModel):
+    ok: bool = True
+    analyses: list[StaffAnalysisDetail]
+
+
+class StaffAnalysisExecutionItem(BaseModel):
+    id: UUID
+    executed_at: datetime
+    status: str
+    trigger_type: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    analysis_version: Optional[int] = None
+    error_message: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class StaffAnalysisHistoryResponse(BaseModel):
+    ok: bool = True
+    executions: list[StaffAnalysisExecutionItem]
