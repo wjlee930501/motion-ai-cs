@@ -115,6 +115,6 @@ def run_learning_cycle(trigger_type: str = "manual"):
         db.close()
 
 
-def run_learning_cycle_manual():
-    """수동 실행용 래퍼"""
-    return run_learning_cycle(trigger_type="manual")
+def run_learning_cycle_manual(trigger_type: str = "manual"):
+    """수동/자동 트리거 실행용 래퍼"""
+    return run_learning_cycle(trigger_type=trigger_type)

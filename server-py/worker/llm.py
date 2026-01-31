@@ -12,7 +12,7 @@ from shared.config import get_settings
 from shared.utils import should_escalate_to_sonnet, match_skip_pattern
 from shared.constants import get_needs_reply, build_intent_prompt_section, build_needs_reply_guide
 from shared.database import get_db
-from shared.models import CSUnderstanding
+from shared.models import CSUnderstanding, ClassificationFeedback
 
 settings = get_settings()
 
@@ -21,6 +21,12 @@ _cs_understanding_cache = {
     "version": 0,
     "text": None,
     "loaded_at": None
+}
+
+# 분류 수정 규칙 캐시
+_correction_rules_cache = {
+    "rules_text": None,
+    "loaded_at": None,
 }
 
 # Lazy import anthropic
@@ -71,6 +77,100 @@ def get_cs_understanding_context() -> Optional[str]:
     return None
 
 
+def get_correction_rules_context() -> Optional[str]:
+    """
+    운영자 수정 패턴을 로드하여 분류 프롬프트에 주입할 규칙 생성.
+    5분 캐시 적용. DB corrections + CSUnderstanding misclassification_learnings 병합.
+    """
+    import time
+    from datetime import datetime, timedelta
+    from sqlalchemy import func as sa_func
+    global _correction_rules_cache
+
+    current_time = time.time()
+    cache_ttl = 300  # 5분
+
+    if (_correction_rules_cache["rules_text"] is not None and
+        _correction_rules_cache["loaded_at"] is not None and
+        current_time - _correction_rules_cache["loaded_at"] < cache_ttl):
+        return _correction_rules_cache["rules_text"]
+
+    try:
+        db = next(get_db())
+
+        # 1. DB에서 최근 30일 수정 패턴 집계
+        cutoff = datetime.utcnow() - timedelta(days=30)
+        correction_patterns = (
+            db.query(
+                ClassificationFeedback.original_intent,
+                ClassificationFeedback.corrected_intent,
+                sa_func.count().label("cnt"),
+            )
+            .filter(
+                ClassificationFeedback.corrected_intent.isnot(None),
+                ClassificationFeedback.corrected_at >= cutoff,
+            )
+            .group_by(
+                ClassificationFeedback.original_intent,
+                ClassificationFeedback.corrected_intent,
+            )
+            .order_by(sa_func.count().desc())
+            .limit(15)
+            .all()
+        )
+
+        # 2. CSUnderstanding에서 misclassification_learnings 로드
+        misclass_learnings = []
+        understanding = db.query(CSUnderstanding).order_by(
+            CSUnderstanding.version.desc()
+        ).first()
+        if understanding and understanding.key_insights:
+            misclass_learnings = understanding.key_insights.get("misclassification_learnings", [])
+
+        db.close()
+
+        # 3. 병합 (DB corrections 우선, dedup by from→to pair)
+        seen_pairs = set()
+        rules = []
+
+        for row in correction_patterns:
+            pair = (row.original_intent, row.corrected_intent)
+            if pair not in seen_pairs:
+                seen_pairs.add(pair)
+                rules.append(f'- "{row.original_intent}" → "{row.corrected_intent}" (수정 {row.cnt}건)')
+
+        for learning in misclass_learnings:
+            orig = learning.get("original_intent", "")
+            corrected = learning.get("corrected_intent", "")
+            if orig and corrected and (orig, corrected) not in seen_pairs:
+                seen_pairs.add((orig, corrected))
+                lesson = learning.get("lesson", "")
+                suffix = f": {lesson}" if lesson else ""
+                rules.append(f'- "{orig}" → "{corrected}"{suffix}')
+
+        if not rules:
+            _correction_rules_cache["rules_text"] = None
+            _correction_rules_cache["loaded_at"] = current_time
+            return None
+
+        rules_text = (
+            "\n---\n"
+            "[분류 수정 규칙 - 반드시 참고]\n"
+            "다음은 운영자가 수정한 분류 패턴입니다:\n"
+            + "\n".join(rules)
+            + "\n\n위 패턴에 해당하는 메시지는 수정된 intent로 분류하세요.\n"
+            "---\n"
+        )
+
+        _correction_rules_cache["rules_text"] = rules_text
+        _correction_rules_cache["loaded_at"] = current_time
+        return rules_text
+
+    except Exception as e:
+        print(f"[LLM] Failed to load correction rules: {e}")
+        return None
+
+
 def get_recent_conversation_context(chat_room: str, limit: int = 5) -> list[dict]:
     """
     최근 메시지 맥락을 조회하여 분류 정확도 향상
@@ -114,16 +214,21 @@ def get_recent_conversation_context(chat_room: str, limit: int = 5) -> list[dict
 
 def build_classification_prompt(base_prompt: str) -> str:
     """
-    기본 프롬프트에 CSUnderstanding 컨텍스트를 추가
+    기본 프롬프트에 수정 규칙 + CSUnderstanding 컨텍스트를 추가.
+    수정 규칙이 먼저 오고, 학습된 패턴이 뒤에 온다 (구체적 규칙 우선).
     """
+    correction_rules = get_correction_rules_context()
     cs_context = get_cs_understanding_context()
 
-    if not cs_context:
-        return base_prompt
+    additions = ""
 
-    # CSUnderstanding에서 핵심 패턴 추출하여 추가
-    context_addition = f"""
+    # 수정 규칙을 먼저 추가 (구체적, 액션 가능한 규칙)
+    if correction_rules:
+        additions += correction_rules
 
+    # 학습된 CS 패턴을 뒤에 추가 (일반적 컨텍스트)
+    if cs_context:
+        additions += f"""
 ---
 [학습된 CS 패턴 - 분류 시 참고]
 {cs_context[:2000]}
@@ -134,7 +239,7 @@ def build_classification_prompt(base_prompt: str) -> str:
 - 학습된 패턴에서 "문의", "요청", "불만"으로 분류된 유형은 needs_reply=true
 """
 
-    return base_prompt + context_addition
+    return base_prompt + additions if additions else base_prompt
 
 
 # System prompts

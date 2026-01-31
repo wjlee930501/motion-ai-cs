@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 
 from sqlalchemy.orm import Session
-from fastapi import FastAPI, Header
+from fastapi import FastAPI, Header, Query
 from contextlib import asynccontextmanager
 
 from shared.database import SessionLocal, engine, Base
@@ -608,7 +608,10 @@ async def root():
 
 
 @app.post("/learning/run")
-async def trigger_learning(x_worker_secret: Optional[str] = Header(None)):
+async def trigger_learning(
+    trigger_type: str = Query("manual"),
+    x_worker_secret: Optional[str] = Header(None),
+):
     """Trigger manual learning cycle - called by Dashboard API.
 
     Requires X-Worker-Secret header matching WORKER_SECRET env var.
@@ -626,11 +629,11 @@ async def trigger_learning(x_worker_secret: Optional[str] = Header(None)):
 
     def run_in_background():
         try:
-            logger.info("[Learning] Manual learning cycle starting...")
-            run_learning_cycle_manual()
-            logger.info("[Learning] Manual learning cycle completed")
+            logger.info(f"[Learning] Learning cycle starting (trigger: {trigger_type})...")
+            run_learning_cycle_manual(trigger_type=trigger_type)
+            logger.info("[Learning] Learning cycle completed")
         except Exception as e:
-            logger.error(f"[Learning] Manual run failed: {e}")
+            logger.error(f"[Learning] Learning run failed: {e}")
 
     thread = threading.Thread(target=run_in_background, daemon=True)
     thread.start()
@@ -638,6 +641,7 @@ async def trigger_learning(x_worker_secret: Optional[str] = Header(None)):
     return {
         "ok": True,
         "status": "started",
+        "trigger_type": trigger_type,
         "message": "Learning cycle started in background"
     }
 

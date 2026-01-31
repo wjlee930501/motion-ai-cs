@@ -1265,6 +1265,54 @@ async def copy_template(
 # Classification Feedback Endpoints
 # ============================================
 
+CORRECTION_TRIGGER_THRESHOLD = 20
+CORRECTION_TRIGGER_COOLDOWN_HOURS = 4
+
+
+def _check_correction_triggered_learning(db: Session):
+    """F3: Auto-trigger learning cycle when unapplied corrections reach threshold."""
+    try:
+        unapplied_count = (
+            db.query(func.count(ClassificationFeedback.id))
+            .filter(ClassificationFeedback.applied_to_version.is_(None))
+            .scalar() or 0
+        )
+        if unapplied_count < CORRECTION_TRIGGER_THRESHOLD:
+            return
+
+        # Check cooldown — skip if learning ran recently
+        from datetime import timedelta
+        cooldown_cutoff = datetime.utcnow() - timedelta(hours=CORRECTION_TRIGGER_COOLDOWN_HOURS)
+        recent_execution = (
+            db.query(LearningExecution)
+            .filter(LearningExecution.executed_at >= cooldown_cutoff)
+            .first()
+        )
+        if recent_execution:
+            return
+
+        # Fire and forget — trigger learning in background
+        worker_url = os.environ.get("WORKER_URL", "http://localhost:8001")
+        worker_secret = os.environ.get("WORKER_SECRET", "")
+
+        def _trigger():
+            try:
+                resp = httpx.post(
+                    f"{worker_url}/learning/run",
+                    params={"trigger_type": "correction_triggered"},
+                    headers={"X-Worker-Secret": worker_secret},
+                    timeout=10.0,
+                )
+                logger.info(f"[Feedback] Auto-triggered learning cycle: {resp.status_code}")
+            except Exception as e:
+                logger.warning(f"[Feedback] Failed to auto-trigger learning: {e}")
+
+        thread = threading.Thread(target=_trigger, daemon=True)
+        thread.start()
+
+    except Exception as e:
+        logger.warning(f"[Feedback] Correction-triggered learning check failed: {e}")
+
 
 @app.post("/v1/feedback/classification", response_model=FeedbackResponse)
 async def submit_classification_feedback(
@@ -1339,6 +1387,52 @@ async def submit_classification_feedback(
     db.add(feedback)
     db.commit()
     db.refresh(feedback)
+
+    # --- F2: Retroactive fix — update LLMAnnotation and Ticket with corrected values ---
+    try:
+        # Update LLMAnnotation if it exists
+        if annotation:
+            if request.corrected_intent is not None:
+                annotation.intent = request.corrected_intent
+            if request.corrected_needs_reply is not None:
+                annotation.needs_reply = request.corrected_needs_reply
+            if request.corrected_topic is not None:
+                annotation.topic = request.corrected_topic
+            db.add(annotation)
+
+        # Update Ticket
+        ticket = db.query(Ticket).filter(Ticket.ticket_id == ticket_link.ticket_id).first()
+        if ticket:
+            # Only update if this event's original values match current ticket values
+            # (avoids overwriting if a newer event already updated the ticket)
+            if request.corrected_intent is not None and ticket.intent == original_intent:
+                ticket.intent = request.corrected_intent
+            if request.corrected_topic is not None and ticket.topic_primary == original_topic:
+                ticket.topic_primary = request.corrected_topic
+            if request.corrected_needs_reply is not None and ticket.needs_reply != request.corrected_needs_reply:
+                old_needs_reply = ticket.needs_reply
+                ticket.needs_reply = request.corrected_needs_reply
+                # SLA breach adjustments
+                if old_needs_reply and not request.corrected_needs_reply:
+                    # Was needs_reply=True, now False → clear SLA breach
+                    ticket.sla_breached = False
+                elif not old_needs_reply and request.corrected_needs_reply:
+                    # Was needs_reply=False, now True → check if SLA breached
+                    if ticket.first_response_sec is None and ticket.first_inbound_at:
+                        from shared.config import get_settings as _get_settings
+                        _settings = _get_settings()
+                        elapsed_sec = (datetime.utcnow() - ticket.first_inbound_at.replace(tzinfo=None)).total_seconds()
+                        if elapsed_sec > _settings.sla_threshold_minutes * 60:
+                            ticket.sla_breached = True
+            db.add(ticket)
+
+        db.commit()
+    except Exception as e:
+        logger.warning(f"[Feedback] Retroactive fix failed (non-blocking): {e}")
+        db.rollback()
+
+    # --- F3: Check if correction threshold reached for auto-triggered learning ---
+    _check_correction_triggered_learning(db)
 
     return FeedbackResponse(ok=True, feedback=FeedbackItem.model_validate(feedback))
 
