@@ -116,7 +116,7 @@ steps:
       - '--add-cloudsql-instances'
       - '${_PROJECT_ID}:${_REGION}:${_CLOUD_SQL_INSTANCE}'
       - '--set-secrets'
-      - 'DATABASE_URL=cs-database-url:latest,JWT_SECRET=cs-jwt-secret:latest,WORKER_SECRET=cs-worker-secret:latest'
+      - 'DATABASE_URL=cs-database-url:latest,JWT_SECRET=cs-jwt-secret:latest,WORKER_SECRET=cs-worker-secret:latest,DEVICE_KEY=cs-device-key:latest,ADMIN_DEFAULT_PASSWORD=cs-admin-password:latest'
       - '--set-env-vars'
       - 'ENV=production'
       - '--memory'
